@@ -124,3 +124,11 @@ This project is developed as part of university coursework.
 For questions, please contact the project maintainers or course instructors.
 
 ---
+
+## 👥 Contributors
+
+| Avatar | Name | GitHub | Role |
+|--------|------|--------|------|
+| <img src="https://avatars.githubusercontent.com/ZhaozixiOwO" width="50"/> | Zixi Zhao | [@ZhaozixiOwO](https://github.com/ZhaozixiOwO) | Project Creator / Developer |
+| <img src="https://avatars.githubusercontent.com/FuShiNanSheng" width="50"/> | FuShiNanSheng | [@FuShiNanSheng](https://github.com/FuShiNanSheng) | Developer / Collaborator |
+
