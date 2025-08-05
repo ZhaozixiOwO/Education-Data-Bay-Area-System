@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Submit your question</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            padding-top: 80px;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-content {
+            background-color: #fff;
+            margin: auto;
+            padding: 20px 30px;
+            border-radius: 10px;
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .modal-content pre {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .close {
+            color: #aaa;
+            position: absolute;
+            right: 16px;
+            top: 12px;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: #f00;
+        }
+    .question-container {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 2rem;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .page-title {
+        text-align: center;
+        color: #2c3e50;
+        margin-bottom: 2rem;
+        font-size: 2.2em;
+    }
+
+    /* 输入区域 */
+    .input-section {
+        margin: 1.5rem 0;
+        position: relative;
+    }
+
+    .question-textarea {
+        width: 100%;
+        padding: 1.2rem;
+        border: 2px solid #bdc3c7;
+        border-radius: 8px;
+        font-size: 1.1em;
+        line-height: 1.6;
+        resize: vertical;
+        transition: border-color 0.3s ease;
+    }
+
+    .question-textarea:focus {
+        border-color: #3498db;
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+    }
+
+    /* 字数统计 */
+    .counter {
+        text-align: right;
+        margin-top: 0.5rem;
+        color: #7f8c8d;
+        font-size: 0.9em;
+    }
+
+    /* 按钮容器 */
+    .action-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-top: 2rem;
+    }
+
+    .btn {
+        padding: 0.8rem 1.5rem;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 1em;
+        transition: all 0.3s ease;
+    }
+
+    .back-btn {
+        background: #95a5a6;
+        color: white;
+    }
+
+    .back-btn:hover {
+        background: #7f8c8d;
+    }
+
+    .submit-btn {
+        background: #27ae60;
+        color: white;
+    }
+
+    .submit-btn:hover {
+        background: #219a52;
+    }
+
+    .submit-btn:disabled {
+        background: #bdc3c7;
+        cursor: not-allowed;
+    }
+
+    /* 加载动画 */
+    .loading-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        z-index: 1000;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% {
+            transform: rotate(0deg);
+        }
+        100% {
+            transform: rotate(360deg);
+        }
+    }
+
+    .loading-text {
+        margin-top: 1rem;
+        color: #2c3e50;
+        font-weight: 500;
+    }
+
+    /* 响应式设计 */
+    @media (max-width: 768px) {
+        .question-container {
+            margin: 1rem;
+            padding: 1.5rem;
+        }
+
+        .page-title {
+            font-size: 1.8em;
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+        }
+    }
+</style>
+</head>
+<body>
+<div class="question-container">
+    <h1 class="page-title">User Questions</h1>
+
+    <div class="input-section">
+        <textarea
+                id="questionInput"
+                class="question-textarea"
+                placeholder="Please enter your question (up to 500 characters)"
+                rows="8"
+                maxlength="500"
+        ></textarea>
+        <div class="counter" id="charCounter">0/500</div>
+    </div>
+
+    <div class="action-buttons">
+        <button onclick="history.back()">Back</button>
+        <button class="btn submit-btn" onclick="submitQuestion()">Submit Question</button>
+    </div>
+
+    <div class="loading-overlay" id="loading">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Submitting...</div>
+    </div>
+
+    <div class="history-section">
+        <h2 class="sub-title">My history question</h2>
+        <div class="history-list" id="historyList">
+
+        </div>
+    </div>
+</div>
+<div id="answerModal" class="modal">
+    <div class="modal-content">
+        <span class="close">&times;</span>
+        <h3>Official response</h3>
+        <pre id="modalAnswerText"></pre>
+    </div>
+</div>
+
+
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    document.getElementById('questionInput').addEventListener('input', function (e) {
+        const counter = document.getElementById('charCounter');
+        const length = e.target.value.length;
+        counter.textContent = `${length}/500`;
+    });
+
+    async function submitQuestion() {
+        const input = document.getElementById('questionInput');
+        const question = input.value.trim();
+        const loading = document.getElementById('loading');
+
+        if (question.length > 500) {
+            alert('The maximum length of the question is 500 characters');
+            return;
+        }
+
+        const userId = sessionStorage.getItem("userId");
+        if (!userId) {
+            alert("User not logged in, please log in again");
+            return;
+        }
+
+        try {
+            loading.style.display = 'flex';
+
+            const response = await fetch('http://127.0.0.1:5000/tadmin/submit-question', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    question: question,
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.message === "The question has been submitted.") {
+                logAction(userId, 'Data User', 'Submitted question')
+                alert('Question submitted successfully!');
+                input.value = '';
+                await renderUserQuestions();
+            } else {
+                throw new Error(result.message || 'Unknown error');
+            }
+
+        } catch (error) {
+            console.error('Submit a bug: ', error);
+            alert(`Submission failed: ${error.message}`);
+        } finally {
+            loading.style.display = 'none';
+        }
+    }
+
+    function handleBack() {
+        if (window.history.length > 1) {
+            window.history.back();
+        } else {
+            window.location.href = '/home';
+        }
+    }
+
+    let autoSaveTimer;
+    document.getElementById('questionInput').addEventListener('input', () => {
+        clearTimeout(autoSaveTimer);
+        autoSaveTimer = setTimeout(() => {
+            const draft = document.getElementById('questionInput').value;
+            localStorage.setItem('questionDraft', draft);
+        }, 2000);
+    });
+
+    window.addEventListener('load', () => {
+        renderUserQuestions();
+        const draft = localStorage.getItem('questionDraft');
+        if (draft) {
+            document.getElementById('questionInput').value = draft;
+            document.getElementById('charCounter').textContent = `${draft.length}/500`;
+            if (confirm('Unsubmitted draft detected, continue editing?')) {
+                document.getElementById('questionInput').focus();
+            }
+        }
+    });
+
+    async function renderUserQuestions() {
+        const historyList = document.getElementById('historyList');
+
+        try {
+            historyList.innerHTML = '<div class="loading">Loading history questions...</div>';
+            const userId = sessionStorage.getItem('userId');
+
+            const response = await fetch('http://127.0.0.1:5000/tadmin/get-question-belongto-user', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({userId: userId})
+            });
+
+            if (!response.ok) {
+                throw new Error(`Request failed:${response.status}`);
+            }
+
+            const {questions} = await response.json();
+            historyList.innerHTML = '';
+
+            if (!questions?.length) {
+                historyList.innerHTML = `
+            <div class="empty-state">
+              <i class="icon-history"></i>
+              No historical question record
+            </div>`;
+                return;
+            }
+
+            questions.forEach((question, index) => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+
+                item.innerHTML = `
+                <div class="history-header">
+                  <span class="q-id">Question No.${question.questionId}</span>
+                  <span class="question-status ${question.answer ? 'status-answered' : 'status-pending'}">
+                    ${question.answer ? '✓ *' : ' '}
+                  </span>
+                </div>
+                <div class="history-question">
+                  <strong>Question content: ${escapeHtml(question.question)}</strong>
+                </div>
+                ${question.answer ? `
+                  <div class="history-answer-toggle">
+                    <button class="view-answer-btn" data-answer="${escapeHtml(question.answer)}">View official response</button>
+                  </div>` : ''}
+              `;
+
+                historyList.appendChild(item);
+            });
+
+            document.querySelectorAll('.view-answer-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const answerText = e.target.getAttribute('data-answer');
+                    showModal(answerText);
+                });
+            });
+
+        } catch (error) {
+            console.error('Failed to load history questions:', error);
+            historyList.innerHTML = `
+              <div class="error-state">
+                <i class="icon-warning"></i>
+               Load failed: ${error.message}
+              </div>`;
+        }
+    }
+
+    function showModal(answerText) {
+        const modal = document.getElementById('answerModal');
+        const content = document.getElementById('modalAnswerText');
+        content.textContent = answerText;
+        modal.style.display = 'block';
+
+        modal.querySelector('.close').onclick = () => {
+            modal.style.display = 'none';
+        };
+
+        window.onclick = (event) => {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        };
+    }
+
+    function escapeHtml(text) {
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;',
+        };
+        return text.replace(/[&<>"']/g, function (m) {
+            return map[m];
+        });
+    }
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success: ', data);
+        } catch (error) {
+            console.error('Logging failure: ', error);
+        }
+    }
+</script>
+</body>
+</html>

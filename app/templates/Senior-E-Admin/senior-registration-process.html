@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registration Process Page</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .registration-list {
+            height: 60vh;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            overflow-y: auto;
+            margin: 20px 0;
+            padding: 10px;
+        }
+
+        .registration-item {
+            padding: 15px;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .registration-item:hover {
+            background-color: #f8f9fa;
+        }
+
+        .registration-item.selected {
+            border-color: #28a745;
+            background-color: #e8f6ef;
+        }
+
+        .reg-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .reg-status {
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+        }
+
+        .reg-status[data-status="pending"] {
+            color: #f39c12;
+            background-color: #fef5e6;
+        }
+
+        .reg-email {
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        .global-message.warning {
+            background-color: #f39c12;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Registration Process</h1>
+
+    <div class="registration-list" id="registrationList">
+    </div>
+    <div class="button-group">
+        <button class="btn-success" onclick="handleApproval()">Approve</button>
+        <button class="btn-danger" onclick="handleRejection()">Reject</button>
+        <button onclick="history.back()">Back</button>
+    </div>
+</div>
+
+<div id="message" class="global-message"></div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    let registrations = [
+        {id: 1001, org: "ABC Company", email: "contact@abc.com", status: "pending"},
+        {id: 1002, org: "XYZ Foundation", email: "info@xyz.org", status: "pending"}
+    ];
+
+    let selectedRegistrationId = null;
+
+    function renderRegistrations() {
+        const container = document.getElementById('registrationList');
+        container.innerHTML = registrations.map(reg => `
+                <div class="registration-item ${selectedRegistrationId === reg.id ? 'selected' : ''}"
+                     onclick="selectRegistration(${reg.id})">
+                    <div class="reg-header">
+                        <span>${reg.org}</span>
+                        <span class="reg-status">${reg.status.toUpperCase()}</span>
+                    </div>
+                    <div class="reg-email">${reg.email}</div>
+                </div>
+            `).join('');
+    }
+
+    function selectRegistration(id) {
+        selectedRegistrationId = id;
+        renderRegistrations();
+    }
+
+    function getSelectedApplicationIds() {
+        const checkboxes = document.querySelectorAll('.app-checkbox:checked');
+        return Array.from(checkboxes).map(cb => parseInt(cb.value));
+    }
+
+    function getSelectedApplicationId() {
+        const selected = document.querySelector('input[name="app-select"]:checked');
+        return selected ? selected.value : null;
+    }
+
+    async function handleApproval() {
+        const selectedId = getSelectedApplicationId();
+
+        if (!selectedId) {
+            return showMessage('Please select the registration application to be approved first', 'warning');
+        }
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/seadmin/approve-registration', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({applicationId: selectedId})
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                console.error('The server returns an error: ', result);
+                throw new Error(result.message || 'Network request failed');
+            }
+            logAction(userId, 'SeniorEAdmin', 'Approval registration');
+            showMessage(`The approved registration application ID is: ${selectedId}`);
+            renderRegistrations();
+
+        } catch (error) {
+            console.error('Front-end capture error: ', error);
+            showMessage('Errors occurred during the approval process: ' + error.message, 'error');
+        }
+    }
+
+    async function handleRejection() {
+        const selectedId = getSelectedApplicationId();
+
+        if (!selectedId) {
+            return showMessage('Please select the registration application you want to reject first', 'warning');
+        }
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/seadmin/reject-registration', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({applicationId: selectedId})
+            });
+
+            const result = await response.json();
+
+            if (!response.ok) {
+                console.error('The server returns an error: ', result);
+                throw new Error(result.message || 'Network request failed');
+            }
+            logAction(userId, 'SeniorEAdmin', 'Refuse registration');
+            showMessage(`The registration application ID: ${selectedId} has been rejected`);
+            renderRegistrations();
+
+        } catch (error) {
+            console.error('Front-end capture error: ', error);
+            showMessage('An error occurred during the rejection process: ' + error.message, 'error');
+        }
+    }
+
+    async function renderRegistrations() {
+        try {
+            const response = await fetch('http://127.0.0.1:5000/seadmin/get-registration-applications', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                throw new Error("Network response was not ok");
+            }
+
+            const applications = await response.json();
+
+            const listContainer = document.getElementById("registrationList");
+            listContainer.innerHTML = "";
+
+            if (applications.length === 0) {
+                listContainer.innerHTML = "<p>No applications found.</p>";
+                return;
+            }
+
+            applications.forEach(app => {
+                const entry = document.createElement("div");
+                entry.className = "registration-entry";
+                entry.innerHTML = `
+                    <input type="radio" name="app-select" class="app-select" value="${app.applicationId}" />
+                    <strong>Application ID:</strong> ${app.applicationId}<br>
+                    <strong>Organization:</strong> ${app.organizationName}<br>
+                    <strong>Email:</strong> ${app.oconvenerEmail}<br>
+                    <strong>Proof Document:</strong> ${app.proofDocuments ? `<a href="${app.proofDocuments}" target="_blank">Download PDF</a>` : "N/A"}<br>
+                    <strong>Registration Code:</strong> ${app.regisCode}
+                    <hr>
+                  `;
+                listContainer.appendChild(entry);
+            });
+        } catch (error) {
+            console.error("Error loading registrations:", error);
+            showMessage("Failed to load application list.");
+        }
+    }
+
+    window.onload = renderRegistrations;
+
+    function showMessage(text, type = 'success') {
+        const msg = document.getElementById('message');
+        msg.textContent = text;
+        msg.className = `global-message ${type}`;
+        msg.classList.add('show');
+        setTimeout(() => msg.classList.remove('show'), 2000);
+    }
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+</script>
+</html>

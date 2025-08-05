@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Add Configuration</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40%;
+            max-height: 80vh;
+            overflow-y: auto;
+            background: white;
+            padding: 20px;
+            border: 1px solid #333;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Services to be configured</h1>
+
+    <div id="serviceTable" style="margin-top: 20px;"></div>
+    <button onclick="history.back()">Back</button>
+    <div id="addConfigModal" class="modal">
+        <h3>Add Configuration</h3>
+        <label>API URL: <input type="text" id="apiUrl"></label><br><br>
+        <label>API Path: <input type="text" id="apiPath"></label><br><br>
+        <label>API Method:<input type="text" id="apiMethod"></label><br><br>
+        <label>API Input: <textarea id="apiInput"></textarea></label><br><br>
+        <label>API Output: <textarea id="apiOutput"></textarea></label><br><br>
+        <label>Service Type: <input type="text" id="apiCategory" disabled></label><br><br>
+        <button onclick="submitConfig()">Commit Configuration</button>
+        <button onclick="closeAddConfigModal()">Cancel</button>
+    </div>
+
+    <div id="testConnectionModal" class="modal">
+        <h3>Testing the API connection</h3>
+        <form id="testConnectionForm">
+            <label>Select Organization:</label>
+            <select id="orgSelect"></select>
+            <div id="dynamicInputs"></div>
+            <br>
+            <button type="button" onclick="submitTestConnection()">Submit Test</button>
+            <button type="button" onclick="closeTestConnectionModal()">Cancel</button>
+        </form>
+    </div>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+
+    async function fetchServices() {
+        try {
+            const res = await fetch(`/datauser/get_workspace_status1?userId=${userId}`);
+            const data = await res.json();
+            const tableDiv = document.getElementById('serviceTable');
+
+            if (Array.isArray(data) && data.length > 0) {
+                let html = `
+          <table border="1" cellspacing="0" cellpadding="8">
+            <thead>
+              <tr>
+                <th>Service Type</th>
+                <th>Operation</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+                data.forEach(service => {
+                    html += `
+            <tr>
+              <td>${service.service}</td>
+              <td>
+                <button onclick="openAddConfigModal(${service.serviceId}, '${service.service}')">Add configuration</button>
+                <button onclick="openTestConnectionModal('${service.service}', ${service.serviceId})">Test the connection</button>
+
+              </td>
+            </tr>
+          `;
+                });
+
+                html += `</tbody></table>`;
+                tableDiv.innerHTML = html;
+            } else {
+                tableDiv.innerHTML = "<p>There are no services to configure.</p>";
+            }
+        } catch (err) {
+            console.error(err);
+            document.getElementById('serviceTable').innerHTML = "<p>Failed to load service.</p>";
+        }
+    }
+
+    document.getElementById("orgSelect").addEventListener("change", function () {
+        const selectedOrg = this.value;
+        const inputArea = document.getElementById("dynamicInputs");
+        inputArea.innerHTML = "<p>Loading input fields...</p>";
+
+        fetch(`/datauser/api/get_student_info_names?name=${encodeURIComponent(selectedOrg)}`)
+            .then(res => res.json())
+            .then(fields => {
+                inputArea.innerHTML = '';
+                for (const [key, type] of Object.entries(fields)) {
+                    const label = document.createElement("label");
+                    label.textContent = `${key}: `;
+                    const input = document.createElement("input");
+                    input.name = key;
+                    input.type = type === 'int' ? 'number' : 'text';
+                    input.placeholder = `请输入 ${key}`;
+                    inputArea.appendChild(label);
+                    inputArea.appendChild(input);
+                    inputArea.appendChild(document.createElement("br"));
+                }
+            })
+            .catch(err => {
+                inputArea.innerHTML = `<p>Failed to load field: ${err.message}</p>`;
+            });
+    });
+
+    async function submitTestConnection() {
+        const orgName = document.getElementById("orgSelect").value;
+        if (!orgName) {
+            alert("Please select an organization!");
+            return;
+        }
+
+        const serviceName = sessionStorage.getItem('currentTestCategory');
+        const inputs = document.querySelectorAll("#dynamicInputs input");
+        const data = {};
+
+        for (const input of inputs) {
+            if (!input.value) {
+                alert(`Please enter ${input.name}`);
+                return;
+            }
+            data[input.name] = input.type === 'number' ? Number(input.value) : input.value;
+        }
+
+        let testURL = "";
+        if (serviceName === "student check") {
+            testURL = `/datauser/api/student_check?name=${encodeURIComponent(orgName)}`;
+        } else if (serviceName === "student info") {
+            testURL = `/datauser/api/student_info_check?name=${encodeURIComponent(orgName)}`;
+        } else if (serviceName === "thesis" || serviceName === "thesis_download") {
+            testURL = `/datauser/api/thesis_info_check?name=${encodeURIComponent(orgName)}&portContent=${encodeURIComponent(serviceName)}`;
+        } else {
+            alert("Unknown service type, unable to submit test");
+            return;
+        }
+
+        try {
+            const res = await fetch(testURL, {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(data)
+            });
+            const serviceId = sessionStorage.getItem('currentServiceId');
+            const result = await res.json();
+            if (result.success) {
+                try {
+                    const confirmRes = await fetch("/datauser/test_config_connection", {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({success: true, serviceId: serviceId})
+                    });
+
+                    const confirmResult = await confirmRes.json();
+
+                    if (confirmResult.success) {
+                        logAction(userId, 'Data User', 'Tested APIs')
+                        alert("API Connection successful, service enabled!");
+                        closeTestConnectionModal();
+                        fetchServices();
+                    } else {
+                        alert("API The test succeeds but the status update fails:" + (confirmResult.error || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert("API The test succeeded, but the commit confirmation failed:" + e.message);
+                }
+            } else {
+                alert("API Connection failed:" + (result.error || 'Unknown error'));
+            }
+        } catch (err) {
+            alert("Connection test exception:" + err.message);
+        }
+    }
+
+
+    function openAddConfigModal(serviceId, serviceName) {
+        document.getElementById("addConfigModal").style.display = "block";
+        sessionStorage.setItem('currentServiceId', serviceId);
+
+        document.getElementById("apiUrl").value = '';
+        document.getElementById("apiPath").value = '';
+        document.getElementById("apiMethod").value = '';
+        document.getElementById("apiInput").value = '';
+        document.getElementById("apiOutput").value = '';
+        document.getElementById("apiCategory").value = serviceName;
+    }
+
+    function closeAddConfigModal() {
+        document.getElementById("addConfigModal").style.display = "none";
+    }
+
+    async function submitConfig() {
+        const serviceId = sessionStorage.getItem('currentServiceId');
+        const apiUrl = document.getElementById("apiUrl").value;
+        const apiPath = document.getElementById("apiPath").value;
+        const apiMethod = document.getElementById("apiMethod").value;
+        const apiInput = document.getElementById("apiInput").value;
+        const apiOutput = document.getElementById("apiOutput").value;
+        const apiCategory = document.getElementById("apiCategory").value;
+
+        if (!apiUrl || !apiPath || !apiMethod || !apiInput || !apiOutput || !apiCategory) {
+            alert("Please fill in all fields");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("apiUrl", apiUrl);
+        formData.append("apiPath", apiPath);
+        formData.append("apiMethod", apiMethod);
+        formData.append("apiInput", apiInput);
+        formData.append("apiOutput", apiOutput);
+        formData.append("apiCategory", apiCategory);
+
+        try {
+            const res = await fetch(`/datauser/config?userId=${userId}`, {
+                method: 'POST',
+                body: formData
+            });
+            const result = await res.json();
+            if (res.ok && result.message) {
+                logAction(userId, 'Data User', 'Confined the APIs')
+                alert("Configuration added successfully!");
+                closeAddConfigModal();
+                fetchServices();
+            } else {
+                alert("Add failed:" + (result.message || result.error));
+            }
+        } catch (err) {
+            alert("Request failed:" + err.message);
+        }
+    }
+
+    function openTestConnectionModal(serviceName, serviceId) {
+        const modal = document.getElementById("testConnectionModal");
+        modal.style.display = "block";
+        const orgSelect = document.getElementById("orgSelect");
+        const inputArea = document.getElementById("dynamicInputs");
+        sessionStorage.setItem('currentTestCategory', serviceName);
+        sessionStorage.setItem('currentServiceId', serviceId);
+
+        inputArea.innerHTML = "<p>Please select an organization first</p>";
+        orgSelect.innerHTML = "<option disabled selected>loading...</option>";
+
+
+        fetch(`/datauser/api/test_organizationName?userId=${encodeURIComponent(userId)}`)
+            .then(res => res.json())
+            .then(orgList => {
+                orgSelect.innerHTML = '';
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = 'Please select an organization';
+                defaultOpt.disabled = true;
+                defaultOpt.selected = true;
+                orgSelect.appendChild(defaultOpt);
+
+                orgList.forEach(org => {
+                    const opt = document.createElement('option');
+                    opt.value = org.organizationName;
+                    opt.textContent = org.organizationName;
+                    orgSelect.appendChild(opt);
+                });
+            });
+
+        orgSelect.onchange = function () {
+            const orgName = this.value;
+            inputArea.innerHTML = "<p>Loading Fields...</p>";
+
+            let fieldAPI = "";
+            if (serviceName === "student check") {
+                fieldAPI = `/datauser/api/get_student_check_names?name=${encodeURIComponent(orgName)}`;
+            } else if (serviceName === "student info") {
+                fieldAPI = `/datauser/api/get_student_info_names?name=${encodeURIComponent(orgName)}`;
+            } else if (serviceName === "thesis" || serviceName === "thesis_download") {
+                fieldAPI = `/datauser/api/get_thesis_info_names?name=${encodeURIComponent(orgName)}&portContent=${encodeURIComponent(serviceName)}`;
+            } else {
+                inputArea.innerHTML = "<p>Unknown service type</p>";
+                return;
+            }
+
+            fetch(fieldAPI)
+                .then(res => res.json())
+                .then(fields => {
+                    inputArea.innerHTML = '';
+                    for (const [key, type] of Object.entries(fields)) {
+                        const label = document.createElement("label");
+                        label.textContent = `${key}: `;
+                        const input = document.createElement("input");
+                        input.name = key;
+                        input.type = type === 'int' ? 'number' : 'text';
+                        input.placeholder = `Please enter ${key}`;
+                        inputArea.appendChild(label);
+                        inputArea.appendChild(input);
+                        inputArea.appendChild(document.createElement("br"));
+                    }
+                })
+                .catch(err => {
+                    inputArea.innerHTML = `<p>Failed to load field: ${err.message}</p>`;
+                });
+        };
+    }
+
+
+    function closeTestConnectionModal() {
+        document.getElementById("testConnectionModal").style.display = "none";
+    }
+
+
+    window.onload = fetchServices;
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success:', data);
+        } catch (error) {
+            console.error('Logging Failure:', error);
+        }
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Organization Log</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .log-list {
+            margin: 20px 0;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .log-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            transition: background-color 0.2s;
+        }
+
+        .log-item:hover {
+            background-color: #f9f9f9;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+
+        .log-time {
+            color: #666;
+        }
+
+        .log-type {
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+
+        .log-content {
+            color: #444;
+            line-height: 1.5;
+        }
+
+        .log-item.info .log-type {
+            color: #2980b9;
+            background-color: #e8f4fd;
+        }
+
+        .log-item.warning .log-type {
+            color: #f39c12;
+            background-color: #fef5e6;
+        }
+
+        .log-item.error .log-type {
+            color: #e74c3c;
+            background-color: #fdedec;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        .log-list {
+            font-family: 'Segoe UI', system-ui;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .log-user label {
+            font-weight: 500;
+            margin-right: 0.5rem;
+        }
+
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Organization Log</h1>
+
+    <div class="log-list" id="logList">
+    </div>
+    <br>
+    <div class="pagination">
+        <button class="btn-secondary">Previous</button>
+        <span>Page 1</span>
+        <button class="btn-secondary">Next</button>
+    </div>
+    <br>
+    <div class="log-list" id="log-List">
+    </div>
+    <div class="button-group">
+        <button class="btn-primary" onclick="location.href=''">
+            Check
+        </button>
+        <button onclick="history.back()">Back</button>
+    </div>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function renderOrgLogs() {
+        try {
+            const userId = sessionStorage.getItem("userId");
+            if (!userId) {
+                console.error("The user is not logged in or has not set a userId");
+                return;
+            }
+
+            const response = await fetch('http://127.0.0.1:5000/log/get-organization-log', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId: userId,
+                    page: 1,
+                    perPage: 20
+                })
+            });
+
+            const logList = document.getElementById("logList");
+
+            if (!document.querySelector('.log-table')) {
+                logList.innerHTML = `
+                <table class="centered-table">
+                    <thead>
+                        <tr>
+                            <th width="80">ID</th>
+                            <th width="120">Status</th>
+                            <th width="180">Time</th>
+                            <th width="200">Emial</th>
+                            <th width="200">AccessLevel</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logListBody"></tbody>
+                </table>
+                <div class="table-footer"></div>`;
+            }
+
+            const logListBody = document.getElementById("logListBody") || logList;
+
+            if (!response.ok) {
+                logListBody.innerHTML = `<tr class="log-error"><td colspan="5">Log loading failed (status code: ${response.status})</td></tr>`;
+                return;
+            }
+
+            const {logs} = await response.json();
+            logListBody.innerHTML = "";
+
+            if (!logs?.length) {
+                logListBody.innerHTML = `
+                <tr class="log-empty">
+                    <td colspan="5">
+                        <i class="icon-info"></i>
+                        There are no system log records for the time being
+                    </td>
+                </tr>`;
+                return;
+            }
+
+            logs.forEach(log => {
+                const status = String(log.status || 'unknown').toLowerCase();
+                const row = document.createElement("tr");
+                row.className = `log-row ${status}`;
+
+                row.innerHTML = `
+                <td class="log-id">#${log.logId}</td>
+                <td class="log-status ${status}">
+                    <span class="status-badge">${log.status || 'UNKNOWN'}</span>
+                </td>
+                <td class="log-time">${formatTime(log.timestamp)}</td>
+                <td class="log-email">
+                    ${log.userEmail ? `
+                        <a href="mailto:${log.userEmail}" class="email-link">
+                            ${log.userEmail}
+                        </a>` :
+                    '<span class="text-muted">N/A</span>'}
+                </td>
+                <td class="log-access">${escapeHtml(log.AccessLevel || 'N/A')}</td>
+                <td class="log-details">
+                    <div class="action-content">${escapeHtml(log.action)}</div>
+                </td>
+            `;
+
+                logListBody.appendChild(row);
+            });
+
+        } catch (error) {
+            console.error("Log rendering exception: ", error);
+            const errorMsg = error.message.includes('Failed to fetch')
+                ? 'Unable to connect to the server'
+                : error.message;
+
+            logList.innerHTML = `
+            <div class="log-error">
+                <i class="icon-warning"></i>
+                Log loading failed: ${errorMsg}
+            </div>`;
+        }
+    }
+
+    function formatTime(timestamp) {
+        try {
+            return new Date(timestamp).toLocaleString('zh-CN');
+        } catch {
+            return 'Abnormal time format';
+        }
+    }
+
+    function escapeHtml(unsafe) {
+        return unsafe?.toString()?.replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;") || 'Empty content';
+    }
+
+    function showErrorMessage(msg) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'log-alert';
+        alertDiv.textContent = msg;
+        document.body.prepend(alertDiv);
+        setTimeout(() => alertDiv.remove(), 5000);
+    }
+
+    renderOrgLogs();
+</script>
+</body>
+</html>

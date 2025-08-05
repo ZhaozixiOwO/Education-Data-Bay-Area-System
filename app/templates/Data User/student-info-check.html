@@ -1,0 +1,235 @@
+ <!DOCTYPE html>
+<html>
+<head>
+    <title>Student Info Check Page</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+
+</head>
+<body>
+<div class="container">
+    <h3>Search for students' information </h3>
+    <div>
+        <label for="jsonSelect">Select an organization: </label>
+        <select id="jsonSelect"></select>
+    </div>
+    <form id="inputForm">
+        <div id="inputContainer"></div>
+        <button type="submit">Submit</button>
+
+    </form>
+
+    <div id="resultContainer" style="margin-top:20px; padding:10px; border:1px solid #ccc;">
+        <h4>Query results:</h4>
+        <div id="resultContent"></div>
+    </div>
+
+    <script>
+        const userId = sessionStorage.getItem("userId");
+        const jsonSelect = document.getElementById('jsonSelect');
+        const inputForm = document.getElementById('inputForm');
+        const inputContainer = document.getElementById('inputContainer');
+
+        function loadJsonNames() {
+            fetch('http://127.0.0.1:5000/datauser/api/send_student_info_names')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(names => {
+                    jsonSelect.innerHTML = '';
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Please select an organization';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    jsonSelect.appendChild(defaultOption);
+
+                    names.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.organizationName;
+                        option.textContent = `${item.organizationName}`;
+
+                        jsonSelect.appendChild(option);
+                    });
+                    if (names.length < 0) {
+                        inputContainer.textContent = 'No institutional data available';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching organization names:', error);
+                    inputContainer.textContent = 'Failed to load organization name:' + error.message;
+                });
+        }
+
+
+        function loadInputs(jsonName) {
+            fetch(`http://127.0.0.1:5000/datauser/api/get_student_info_names?name=${encodeURIComponent(jsonName)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    inputContainer.innerHTML = '';
+                    for (const variableName in data) {
+                        if (data.hasOwnProperty(variableName)) {
+                            const inputGroup = document.createElement('div');
+                            inputGroup.className = 'input-group';
+                            const label = document.createElement('label');
+                            label.textContent = `${variableName}: `;
+                            inputGroup.appendChild(label);
+                            const input = document.createElement('input');
+                            input.type = data[variableName] === 'int' ? 'number' : 'text';
+                            input.placeholder = `Please enter ${variableName}`;
+                            input.name = variableName;
+                            inputGroup.appendChild(input);
+                            inputContainer.appendChild(inputGroup);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching JSON:', error);
+                    inputContainer.textContent = 'Failed to load input box: ' + error.message;
+                });
+        }
+
+
+        loadJsonNames();
+
+        jsonSelect.addEventListener('change', () => {
+            loadInputs(jsonSelect.value);
+        });
+
+
+        inputForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const inputs = document.querySelectorAll('#inputContainer input');
+            const formData = {};
+            let hasEmpty = false;
+
+            inputs.forEach(input => {
+                if (!input.value) {
+                    hasEmpty = true;
+                    input.style.borderColor = 'red';
+                } else {
+                    formData[input.name] = input.type === 'number' ? parseInt(input.value) : input.value;
+                }
+            });
+
+            if (hasEmpty) {
+                alert('Please fill in all input boxes!');
+                return;
+            }
+
+            const selectedOption = jsonSelect.options[jsonSelect.selectedIndex];
+            const name = selectedOption.value;
+            const portContent = "student info";
+
+            try {
+                const studentCheckResponse = await fetch(`/datauser/api/student_info_check?name=${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+                if (!studentCheckResponse.ok) throw new Error(`Student verification submission failed! HTTP ${studentCheckResponse.status}`);
+                const queryResult = await studentCheckResponse.json();
+
+                if (queryResult.detail) {
+                    alert(`No student information found: ${queryResult.detail}`);
+                    return;
+                }
+                const hasValue = Object.values(queryResult).some(v => v !== null && v !== '');
+                if (!hasValue) {
+                    alert('No student information was found (the returned content is empty).');
+                    return;
+                }
+
+                const priceResponse = await fetch(`http://127.0.0.1:5000/datauser/api/get_workspace_price?name=${encodeURIComponent(name)}&portContent=${encodeURIComponent(portContent)}`);
+                if (!priceResponse.ok) throw new Error('Price query failed');
+                const {price} = await priceResponse.json();
+
+                let paymentSuccess = true;
+                if (price > 0) {
+                    const quotaResp = await fetch(`http://127.0.0.1:5000/pay/check_quota?userId=${encodeURIComponent(userId)}&price=${price}`);
+                    const quotaData = await quotaResp.json();
+
+                    if (!quotaData.sufficient) {
+                        alert(`The current remaining balance in the account is ${quotaData.remainingQuota} yuan, which is insufficient to pay ${price} yuan. This query cannot be completed.`);
+                        return;
+                    }
+                    if (confirm(`This query costs ${price}, do you want to pay?`)) {
+                        const transferResponse = await fetch(`/pay/transfer_funds?userId=${encodeURIComponent(userId)}&price=${price}`, {method: 'POST'});
+                        const transferResult = await transferResponse.json();
+                        if (!transferResult.success) {
+                            alert(`Payment failed: ${transferResult.reason}`);
+                            return;
+                        }
+                    } else {
+                        alert('The payment has been cancelled and the query results will not be displayed.');
+                        return;
+                    }
+                }
+                try {
+                    await fetch(`http://127.0.0.1:5000/pay/deduct_quota?userId=${encodeURIComponent(userId)}&price=${price}`, {
+                        method: 'POST'
+                    });
+                } catch (e) {
+                    console.warn("Balance deduction request failed (can be ignored): ", e);
+                }
+
+                const resultContent = document.getElementById('resultContent');
+                resultContent.innerHTML = '';
+                if (queryResult.data && typeof queryResult.data === 'object') {
+                    Object.entries(queryResult.data).forEach(([key, value]) => {
+                        const label = key
+                            .split('_')
+                            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                            .join(' ');
+                        const p = document.createElement('p');
+                        p.textContent = `${label}: ${value}`;
+                        resultContent.appendChild(p);
+                    });
+                } else {
+                    const p = document.createElement('p');
+                    p.textContent = 'No student information found';
+                    resultContent.appendChild(p);
+                }
+                logAction(userId, 'Data User', 'Check student info')
+                alert('The query was successful and (if necessary) the payment was successful, the results have been displayed!');
+
+            } catch (error) {
+                console.error('Process error:', error);
+                alert('Operation failed: ' + error.message);
+            }
+        });
+
+        async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error: ', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success: ', data);
+            } catch (error) {
+                console.error('Logging failure: ', error);
+            }
+        }
+
+    </script>
+    <br>
+    <button onclick="history.back()">Back</button>
+</div>
+</body>
+</html>

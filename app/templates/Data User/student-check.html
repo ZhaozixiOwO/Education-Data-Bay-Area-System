@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Stuent Check Page</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+
+</head>
+<body>
+<div class="container">
+    <h3>Check the student's identity </h3>
+    <div>
+        <label for="jsonSelect">Select an organization: </label>
+        <select id="jsonSelect"></select>
+    </div>
+    <form id="inputForm">
+        <div id="inputContainer"></div>
+        <button type="submit">Submit</button>
+
+    </form>
+
+    <div id="resultContainer" style="margin-top:20px; padding:10px; border:1px solid #ccc;">
+        <h4>Query results:</h4>
+        <div id="resultContent"></div>
+    </div>
+    <hr>
+    <h4>Batch inspection</h4>
+    <form id="batchForm" enctype="multipart/form-data">
+        <label for="batchFile">Upload Excel file:</label>
+        <input type="file" id="batchFile" name="file" accept=".xlsx" required>
+        <button type="submit">One-click inspection</button>
+    </form>
+
+    <div id="batchResult" style="margin-top:20px;">
+        <h5>Batch results:</h5>
+        <div id="batchTable"></div>
+    </div>
+    <script>
+        const userId = sessionStorage.getItem("userId");
+        console.log("User ID is ", userId);
+        const jsonSelect = document.getElementById('jsonSelect');
+        const inputForm = document.getElementById('inputForm');
+        const inputContainer = document.getElementById('inputContainer');
+
+        function loadJsonNames() {
+            fetch('http://127.0.0.1:5000/datauser/api/send_student_check_names')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(names => {
+                    jsonSelect.innerHTML = '';
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Please select an organization';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+                    jsonSelect.appendChild(defaultOption);
+
+                    names.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.organizationName;
+                        option.textContent = `${item.organizationName}`;
+
+                        jsonSelect.appendChild(option);
+                    });
+                    if (names.length < 0) {
+                        inputContainer.textContent = 'No institutional data available';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching organization names:', error);
+                    inputContainer.textContent = 'Failed to load organization name:' + error.message;
+                });
+        }
+
+
+        function loadInputs(jsonName) {
+            fetch(`http://127.0.0.1:5000/datauser/api/get_student_check_names?name=${encodeURIComponent(jsonName)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    inputContainer.innerHTML = '';
+                    for (const variableName in data) {
+                        if (data.hasOwnProperty(variableName)) {
+                            const inputGroup = document.createElement('div');
+                            inputGroup.className = 'input-group';
+                            const label = document.createElement('label');
+                            label.textContent = `${variableName}: `;
+                            inputGroup.appendChild(label);
+                            const input = document.createElement('input');
+                            input.type = data[variableName] === 'int' ? 'number' : 'text';
+                            input.placeholder = `Please enter ${variableName}`;
+                            input.name = variableName;
+                            inputGroup.appendChild(input);
+                            inputContainer.appendChild(inputGroup);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching JSON:', error);
+                    inputContainer.textContent = 'Failed to load input box:' + error.message;
+                });
+        }
+
+        loadJsonNames();
+
+        jsonSelect.addEventListener('change', () => {
+            loadInputs(jsonSelect.value);
+        });
+
+        inputForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const inputs = document.querySelectorAll('#inputContainer input');
+            const formData = {};
+            let hasEmpty = false;
+
+            inputs.forEach(input => {
+                if (!input.value) {
+                    hasEmpty = true;
+                    input.style.borderColor = 'red';
+                } else {
+                    formData[input.name] = input.type === 'number' ? parseInt(input.value) : input.value;
+                }
+            });
+
+            if (hasEmpty) {
+                alert('Please fill in all input boxes!');
+                return;
+            }
+
+            const selectedOption = jsonSelect.options[jsonSelect.selectedIndex];
+            const name = selectedOption.value;
+            const portContent = "student check";
+
+            try {
+                const queryResponse = await fetch(`http://127.0.0.1:5000/datauser/api/student_check?name=${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData),
+                });
+
+                const queryResult = await queryResponse.json();
+
+                if (!queryResponse.ok) {
+                    const errorMsg = queryResult.error || 'Query failed';
+                    alert(`Query failed:${errorMsg}`);
+                    return;
+                }
+
+                if (queryResult.detail) {
+                    alert(`No student information found: ${queryResult.detail}`);
+                    return;
+                }
+
+
+                const priceResponse = await fetch(`http://127.0.0.1:5000/datauser/api/get_workspace_price?name=${encodeURIComponent(name)}&portContent=${encodeURIComponent(portContent)}`);
+                const priceData = await priceResponse.json();
+                const price = priceData.price || 0;
+
+                let paymentSuccess = true;
+
+                if (price > 0) {
+                    const quotaResp = await fetch(`http://127.0.0.1:5000/pay/check_quota?userId=${encodeURIComponent(userId)}&price=${price}`);
+                    const quotaData = await quotaResp.json();
+
+                    if (!quotaData.sufficient) {
+                        alert(`The current remaining balance in the account is ${quotaData.remainingQuota} yuan, which is insufficient to pay ${price} yuan. This query cannot be completed.`);
+                        return;
+                    }
+
+                    const confirmPayment = confirm(`This query requires a payment of ${price} yuan. Do you confirm the payment?`);
+                    if (confirmPayment) {
+                        const payResponse = await fetch(`http://127.0.0.1:5000/pay/transfer_funds?userId=${encodeURIComponent(userId)}&price=${price}`, {
+                            method: 'POST'
+                        });
+                        const payResult = await payResponse.json();
+                        if (!payResult.success) {
+                            alert(`Payment failed: ${payResult.reason || 'Unknown error'}`);
+                            paymentSuccess = false;
+                        }
+                    } else {
+                        alert("If you cancel the payment, the query results will not be displayed.");
+                        return;
+                    }
+                }
+
+                if (!paymentSuccess) return;
+                try {
+                    await fetch(`http://127.0.0.1:5000/pay/deduct_quota?userId=${encodeURIComponent(userId)}&price=${price}`, {
+                        method: 'POST'
+                    });
+                } catch (e) {
+                    console.warn("Balance deduction request failed (can be ignored):", e);
+                }
+                const resultContent = document.getElementById('resultContent');
+                resultContent.innerHTML = '';
+
+                if (queryResult.data && typeof queryResult.data === 'object') {
+                    Object.entries(queryResult.data).forEach(([key, value]) => {
+                        const label = key
+                            .split('_')
+                            .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+                            .join(' ');
+                        const p = document.createElement('p');
+                        p.textContent = `${label}: ${value}`;
+                        resultContent.appendChild(p);
+                    });
+                } else {
+                    Object.entries(queryResult).forEach(([key, value]) => {
+                        const p = document.createElement('p');
+                        p.textContent = `${key}: ${value}`;
+                        resultContent.appendChild(p);
+                    });
+                }
+
+                alert("Query successful and payment successful!");
+
+            } catch (error) {
+                console.error('Submission error:', error);
+                alert('Submission failed:' + error.message);
+            }
+        });
+        document.getElementById('batchForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            const fileInput = document.getElementById('batchFile');
+            const file = fileInput.files[0];
+            const name = jsonSelect.value;
+
+            if (!name) {
+                alert('Please select an organization first');
+                return;
+            }
+
+            const portContent = "student check";
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                const response = await fetch(`http://127.0.0.1:5000/datauser/api/batch_student_check?name=${encodeURIComponent(name)}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (!Array.isArray(result)) {
+                    alert("Query failed:" + (result.error || 'Unknown error'));
+                    return;
+                }
+
+                const priceResponse = await fetch(`http://127.0.0.1:5000/datauser/api/get_workspace_price?name=${encodeURIComponent(name)}&portContent=${encodeURIComponent(portContent)}`);
+                const priceData = await priceResponse.json();
+                const price = priceData.price || 0;
+                const unitPrice = priceData.price || 0;
+                const totalPrice = unitPrice * result.length;
+
+                let paymentSuccess = true;
+
+                if (price > 0) {
+                    const quotaResp = await fetch(`http://127.0.0.1:5000/pay/check_quota?userId=${encodeURIComponent(userId)}&price=${totalPrice}`);
+                    const quotaData = await quotaResp.json();
+
+                    if (!quotaData.sufficient) {
+                        alert(`The current remaining balance in the account is ${quotaData.remainingQuota} yuan, which is insufficient to pay ${totalPrice} yuan. This query cannot be completed.`);
+                        return;
+                    }
+
+                    const confirmPayment = confirm(`Query successful, total ${result.length} records, total payment required is ${totalPrice} yuan, do you confirm payment?`);
+                    if (confirmPayment) {
+                        const payResponse = await fetch(`http://127.0.0.1:5000/pay/transfer_funds?userId=${encodeURIComponent(userId)}&price=${totalPrice}`, {
+                            method: 'POST'
+                        });
+                        const payResult = await payResponse.json();
+                        if (!payResult.success) {
+                            alert(`Payment failed: ${payResult.reason || 'Unknown error'}`);
+                            paymentSuccess = false;
+                        }
+                    } else {
+                        alert("If you cancel the payment, the query results will not be displayed.");
+                        return;
+                    }
+                }
+
+                if (!paymentSuccess) return;
+                try {
+                    await fetch(`http://127.0.0.1:5000/pay/deduct_quota?userId=${encodeURIComponent(userId)}&price=${totalPrice}`, {
+                        method: 'POST'
+                    });
+                } catch (e) {
+                    console.warn("Balance deduction request failed (can be ignored):", e);
+                }
+                // 第3步：支付成功后展示结果
+                const container = document.getElementById('batchTable');
+                container.innerHTML = '';
+
+                result.forEach((item, index) => {
+                    const card = document.createElement('div');
+                    card.style.border = "1px solid #aaa";
+                    card.style.padding = "10px";
+                    card.style.marginBottom = "10px";
+                    card.style.backgroundColor = "#f9f9f9";
+
+                    const title = document.createElement('h5');
+                    title.textContent = `Query result for item ${index + 1}`;
+                    card.appendChild(title);
+
+                    const inputSection = document.createElement('div');
+                    inputSection.innerHTML = '<strong>Input information:</strong><br>';
+                    for (const [key, value] of Object.entries(item.input)) {
+                        const p = document.createElement('p');
+                        p.textContent = `${key}: ${value}`;
+                        inputSection.appendChild(p);
+                    }
+                    card.appendChild(inputSection);
+
+                    const resultSection = document.createElement('div');
+                    resultSection.innerHTML = '<strong>Query results:</strong><br>';
+
+                    if (item.result) {
+                        for (const [key, value] of Object.entries(item.result)) {
+                            const p = document.createElement('p');
+                            const label = key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                            p.textContent = `${label}: ${value}`;
+                            resultSection.appendChild(p);
+                        }
+                    } else {
+                        const p = document.createElement('p');
+                        p.textContent = `error message:${item.error || 'Unknown error'}`;
+                        resultSection.appendChild(p);
+                    }
+
+                    card.appendChild(resultSection);
+                    container.appendChild(card);
+                });
+                logAction(userId, 'Data User', 'Check student identity')
+                alert("Payment is successful and batch query results have been displayed!");
+
+            } catch (err) {
+                alert("Batch query failed:" + err.message);
+            }
+        });
+
+        async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error:', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success:', data);
+            } catch (error) {
+                console.error('Logging failure:', error);
+            }
+        }
+
+    </script>
+    <br>
+    <button onclick="history.back()">Back</button>
+</div>
+</body>
+</html>

@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Thesis Page</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+
+</head>
+<body>
+<div class="container">
+    <h3>Search for or download thesis</h3>
+    <div>
+        <label for="jsonSelect">Select an organization: </label>
+        <select id="jsonSelect"></select>
+    </div>
+    <form id="inputForm">
+        <div id="inputContainer"></div>
+        <button type="submit">Submit</button>
+
+    </form>
+
+    <div id="resultContainer" style="margin-top:20px; padding:10px; border:1px solid #ccc;">
+        <h4>Query results: </h4>
+        <div id="resultContent"></div>
+    </div>
+
+    <script>
+        const userId = sessionStorage.getItem("userId");
+        console.log("User ID is ", userId);
+        const jsonSelect = document.getElementById('jsonSelect');
+        const inputForm = document.getElementById('inputForm');
+        const inputContainer = document.getElementById('inputContainer');
+
+        function loadJsonNames() {
+            fetch('http://127.0.0.1:5000/datauser/api/send_thesis_info_names')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(names => {
+                    jsonSelect.innerHTML = '';
+
+                    const defaultOption = document.createElement('option');
+                    defaultOption.value = '';
+                    defaultOption.textContent = 'Please select an organization';
+                    defaultOption.disabled = true;
+                    defaultOption.selected = true;
+
+                    jsonSelect.appendChild(defaultOption);
+
+                    names.forEach(item => {
+                        const option = document.createElement('option');
+                        option.value = item.organizationName + '-' + item.portContent;
+                        option.textContent = `${item.organizationName} - ${item.portContent}`;
+
+                        jsonSelect.appendChild(option);
+                    });
+                    if (names.length < 0) {
+                        inputContainer.textContent = 'No institutional data available';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching organization names:', error);
+                    inputContainer.textContent = 'Failed to load organization name: ' + error.message;
+                });
+        }
+
+
+        function loadInputs(jsonName) {
+            const [organizationName, portContent] = jsonName.split('-');
+            fetch(`http://127.0.0.1:5000/datauser/api/get_thesis_info_names?name=${encodeURIComponent(organizationName)}&portContent=${encodeURIComponent(portContent)}`)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    inputContainer.innerHTML = '';
+                    for (const variableName in data) {
+                        if (data.hasOwnProperty(variableName)) {
+                            const inputGroup = document.createElement('div');
+                            inputGroup.className = 'input-group';
+                            const label = document.createElement('label');
+                            label.textContent = `${variableName}: `;
+                            inputGroup.appendChild(label);
+                            const input = document.createElement('input');
+                            input.type = data[variableName] === 'int' ? 'number' : 'text';
+                            input.placeholder = `Please input ${variableName}`;
+                            input.name = variableName;
+                            inputGroup.appendChild(input);
+                            inputContainer.appendChild(inputGroup);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching JSON:', error);
+                    inputContainer.textContent = 'Failed to load input box: ' + error.message;
+                });
+        }
+
+        loadJsonNames();
+
+        jsonSelect.addEventListener('change', () => {
+            loadInputs(jsonSelect.value);
+        });
+
+        inputForm.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const inputs = document.querySelectorAll('#inputContainer input');
+            const formData = {};
+            let hasEmpty = false;
+
+            inputs.forEach(input => {
+                if (!input.value) {
+                    hasEmpty = true;
+                    input.style.borderColor = 'red';
+                } else {
+                    formData[input.name] = input.type === 'number' ? parseInt(input.value) : input.value;
+                }
+            });
+
+            if (hasEmpty) {
+                alert('Please fill in all input boxes! ');
+                return;
+            }
+
+            const selectedOption = jsonSelect.options[jsonSelect.selectedIndex];
+            const [name, portContent] = selectedOption.value.split('-');
+
+
+            try {
+                const studentCheckResponse = await fetch(`/datauser/api/thesis_info_check?name=${encodeURIComponent(name)}&portContent=${encodeURIComponent(portContent)}`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(formData)
+                });
+
+                if (!studentCheckResponse.ok) {
+                    const err = await studentCheckResponse.json();
+                    alert(`Query failed:${err.error || 'Server Error'}`);
+                    return;
+                }
+
+                const ct = studentCheckResponse.headers.get('Content-Type') || '';
+                let payload;
+                if (ct.includes('application/pdf')) {
+                    if (portContent !== 'thesis_download') {
+                        alert('Error: Expected query information, server returned PDF. ');
+                        return;
+                    }
+                    payload = await studentCheckResponse.blob();
+                } else {
+                    payload = await studentCheckResponse.json();
+                    if (portContent !== 'thesis') {
+                        alert('The thesis was not found.');
+                        return;
+                    }
+                    if (!payload || (Array.isArray(payload) && payload.length === 0)) {
+                        alert('No information of papers that meet the conditions was found.');
+                        return;
+                    }
+                    const data = Array.isArray(payload) ? payload[0] : payload;
+                    const hasValue = Object.values(data).some(v => v !== null && v !== '');
+                    if (!hasValue) {
+                        alert('The query results are incomplete, all fields are empty. ');
+                        return;
+                    }
+                }
+
+                const priceResponse = await fetch(`/datauser/api/get_workspace_price?name=${encodeURIComponent(name)}&portContent=${encodeURIComponent(portContent)}`);
+                if (!priceResponse.ok) throw new Error(`Failed to query price: ${priceResponse.status} ${priceResponse.statusText}`);
+                const {price} = await priceResponse.json();
+
+                if (price > 0) {
+                    const quotaResp = await fetch(`http://127.0.0.1:5000/pay/check_quota?userId=${encodeURIComponent(userId)}&price=${price}`);
+                    const quotaData = await quotaResp.json();
+
+                    if (!quotaData.sufficient) {
+                        alert(`The current remaining balance in the account is ${quotaData.remainingQuota} yuan, which is insufficient to pay ${price} yuan. This query cannot be completed.`);
+                        return;
+                    }
+
+                    if (!confirm(`This operation requires a payment of ${price} yuan. Do you want to pay?`)) {
+                        alert('The operation has been cancelled.');
+                        return;
+                    }
+                    const pay = await fetch(`/pay/transfer_funds?userId=${encodeURIComponent(userId)}&price=${price}`, {method: 'POST'});
+                    const payRes = await pay.json();
+                    if (!payRes.success) {
+                        alert('Payment failed: ' + (payRes.reason || 'Unknown error'));
+                        return;
+                    }
+                }
+                try {
+                    await fetch(`http://127.0.0.1:5000/pay/deduct_quota?userId=${encodeURIComponent(userId)}&price=${price}`, {
+                        method: 'POST'
+                    });
+                } catch (e) {
+                    console.warn("Balance deduction request failed (can be ignored): ", e);
+                }
+                if (portContent === 'thesis') {
+                    const resultContent = document.getElementById('resultContent');
+                    resultContent.innerHTML = '';
+                    console.log('payload:', payload);
+                    const thesisArray = payload.data;
+                    if (!Array.isArray(thesisArray) || thesisArray.length === 0) {
+                        resultContent.textContent = 'No paper details found.';
+                    } else {
+                        const thesis = thesisArray[0];
+                        Object.entries(thesis).forEach(([k, v]) => {
+                            const label = k.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                            const p = document.createElement('p');
+                            p.textContent = `${label}: ${typeof v === 'object' && v !== null ? JSON.stringify(v) : v}`;
+                            resultContent.appendChild(p);
+                        });
+                    }
+                    logAction(userId, 'Data User', 'View thesis');
+                    alert('The query was successful and the results have been displayed! ');
+                } else if (portContent === 'thesis_download') {
+
+                    const url = URL.createObjectURL(payload);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'thesis.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    URL.revokeObjectURL(url);
+                    logAction(userId, 'Data User', 'Download thesis');
+                    alert('Paper downloaded successfully');
+                }
+            } catch (e) {
+                console.error('Operation failed', e);
+                alert('Operation failed: ' + e.message);
+            }
+        });
+
+        async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error: ', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success:', data);
+            } catch (error) {
+                console.error('Logging Failure:', error);
+            }
+        }
+    </script>
+    <br>
+    <button onclick="history.back()">Back</button>
+</div>
+</body>
+</html>

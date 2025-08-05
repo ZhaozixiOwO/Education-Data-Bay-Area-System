@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Public Data Consumer</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Public Data Consumer</h1>
+        <div class="content">
+            <h2>Public Data Consumer</h2>
+            <p>Enjoy some services.</p>
+        </div>
+        <div class="nav">
+            <a href="course-view">Course</a>
+            <a href="thesis">Thesis</a>
+            <a href="policy-view">Browse Policy</a>
+            <a href="submit-question">Help</a>
+            <button onclick="logout(event)">Logout</button>
+        </div>
+
+    </div>
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success:', data);
+        } catch (error) {
+            console.error('Logging Failure:', error);
+        }
+    }
+
+    async function logout(event) {
+        if (event) event.preventDefault();
+        await logAction(userId, 'EAdmin', "Logout");  // 调用日志
+        const response = await fetch(`/user/logout?userId=${userId}`, {
+          method: "POST"
+        });
+        const result = await response.json();
+
+        if (response.ok && result.message) {
+          sessionStorage.clear();
+
+          window.location.href = "/frontend/login";
+        } else {
+          alert("登出失败：" + (result.error || "未知错误"));
+        }
+    }
+</script>
+</body>
+</html>

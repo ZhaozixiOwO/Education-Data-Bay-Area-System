@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bank Account Info</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <style>
+    .container {
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+    }
+    .info-box {
+      margin: 20px 0;
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    #formDialog {
+      display: none;
+      border: 1px solid #aaa;
+      padding: 20px;
+      background-color: #f9f9f9;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>Bank account information</h2>
+    <div id="accountInfo" class="info-box">Loading ...</div>
+
+    <button id="actionBtn" onclick="toggleForm()">Add/Edit</button>
+    <button onclick="history.back()">Back</button>
+    <div id="formDialog">
+      <div>
+        <label>Account Name:</label>
+        <input type="text" id="name" />
+      </div>
+      <div>
+        <label>Account Number:</label>
+        <input type="text" id="account" />
+      </div>
+      <div>
+        <label>Bank:</label>
+        <input type="text" id="bank" />
+      </div>
+      <div>
+        <label>Password:</label>
+        <input type="password" id="password" />
+      </div>
+      <div>
+        <label>Display Password:</label>
+        <input type="checkbox" onclick="togglePassword()">
+      </div>
+      <button onclick="submitForm()">Submit</button>
+      <button onclick="toggleForm()">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+    let currentBankData = null;
+
+    function togglePassword() {
+      const pwd = document.getElementById("password");
+      pwd.type = pwd.type === "password" ? "text" : "password";
+    }
+    async function loadBankAccount() {
+      try {
+        const res = await fetch(`/eadmin/get_e_dba_bank_account`);
+        const accountDiv = document.getElementById("accountInfo");
+        const actionBtn = document.getElementById("actionBtn");
+
+        if (res.ok) {
+          const data = await res.json();
+          currentBankData = data;
+          logAction(userId, 'EAdmin', 'Check E-DBA account');
+          if (data && data.account_number) {
+            accountDiv.innerHTML = `
+              <p><strong>Account Name:</strong> ${data.account_name}</p>
+              <p><strong>Account Number:</strong> ${data.account_number}</p>
+              <p><strong>Bank:</strong> ${data.bank}</p>
+              <p><strong>Account password:</strong> ${data.password}</p>
+            `;
+            actionBtn.textContent = "Edit Account";
+          } else {
+            accountDiv.textContent = "You haven't added an account yet";
+            actionBtn.textContent = "Add Account";
+          }
+        } else {
+          accountDiv.textContent = "Account query failed";
+        }
+      } catch (err) {
+        document.getElementById("accountInfo").textContent = "Load failed: " + err.message;
+      }
+    }
+
+
+    function toggleForm() {
+      const form = document.getElementById("formDialog");
+      const isVisible = form.style.display === "block";
+
+      if (!isVisible && currentBankData) {
+        document.getElementById("name").value = currentBankData.account_name || '';
+        document.getElementById("account").value = currentBankData.account_number || '';
+        document.getElementById("bank").value = currentBankData.bank || '';
+        document.getElementById("password").value = currentBankData.password || '';
+      }
+
+      form.style.display = isVisible ? "none" : "block";
+    }
+
+
+    async function submitForm() {
+      const name = document.getElementById("name").value.trim();
+      const account = document.getElementById("account").value.trim();
+      const bank = document.getElementById("bank").value.trim();
+      const password = document.getElementById("password").value.trim();
+
+      if (!name || !account || !bank || !password) {
+        alert("Please fill in the complete information.");
+        return;
+      }
+
+      const formData = new URLSearchParams();
+      formData.append("name", name);
+      formData.append("account", account);
+      formData.append("bank", bank);
+      formData.append("password", password);
+
+      try {
+        const res = await fetch(`/eadmin/set_e_dba_bank_account`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formData
+        });
+
+        const result = await res.json();
+        if (res.ok) {
+        logAction(userId, 'EAdmin', 'Edit E-DBA account');
+          alert("Submission successful!");
+          toggleForm();
+          loadBankAccount();
+        } else {
+          alert("Submission failed: " + (result.error || "Unknown error"));
+        }
+      } catch (err) {
+        alert("Request error: " + err.message);
+      }
+    }
+
+    window.onload = loadBankAccount;
+
+    async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error: ', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success: ', data);
+            } catch (error) {
+                console.error('Logging failure: ', error);
+            }
+    }
+  </script>
+</body>
+</html>

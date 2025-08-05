@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title>Policy document display</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h2>Policy Document List</h2>
+    <table id="policyTable" class="centered-table">
+        <thead>
+        <tr>
+            <th>Title</th>
+            <th>Operation</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <button onclick="history.back()">Back</button>
+    <script>
+        const userId = sessionStorage.getItem("userId");
+        console.log("User ID is ", userId);
+
+        logAction(userId, 'Data User', 'Check policy')
+
+        async function fetchPolicies() {
+            const response = await fetch('/eadmin/list_policies');
+            const data = await response.json();
+            const tableBody = document.querySelector('#policyTable tbody');
+            tableBody.innerHTML = '';
+
+            data.forEach(policy => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+            <td>${policy.title}</td>
+            <td>
+              <button onclick="downloadPolicy(${policy.id}, '${policy.title}')">Download</button>
+            </td>
+          `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        async function downloadPolicy(policyId, title) {
+            const formData = new FormData();
+            formData.append('policyId', policyId);
+
+            const response = await fetch('/eadmin/view_policy', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                alert('Download failed');
+                return;
+            }
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${title}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(url);
+            logAction(userId, 'Data User', 'Download policy')
+        }
+
+        window.onload = fetchPolicies;
+
+        async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error:', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success:', data);
+            } catch (error) {
+                console.error('Logging Failure:', error);
+            }
+        }
+    </script>
+</div>
+</body>
+</html>

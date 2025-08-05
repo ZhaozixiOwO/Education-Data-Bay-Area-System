@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 500px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            animation: modalSlide 0.3s ease-out;
+        }
+
+        .modal h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .modal p {
+            line-height: 1.6;
+            margin-bottom: 25px;
+            color: #666;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: flex-end;
+        }
+
+        @keyframes modalSlide {
+            from {
+                transform: translateY(-50px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Register Page</h1>
+
+    <form id="registrationForm">
+        <div class="form-group">
+            <input type="text" id="orgName"
+                   placeholder="Organization Name" required>
+        </div>
+
+        <div class="form-group">
+            <input type="email" id="email"
+                   placeholder="Email Address" required>
+        </div>
+
+        <div class="form-group">
+            <div class="input-group">
+                <input type="text" id="verificationCode"
+                       placeholder="Verification Code" required>
+                <button type="button" class="btn-primary"
+                        onclick="sendVerificationCode()">
+                    Send Code
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label class="file-upload btn-secondary">
+                <input type="file" id="document"
+                       accept=".pdf,.doc,.docx" required>
+                Upload Document
+            </label>
+        </div>
+
+        <div class="button-group">
+            <button type="button" class="btn-secondary"
+                    onclick="location.href='login'">
+                Cancel
+            </button>
+            <button type="submit" class="btn-success">
+                Submit
+            </button>
+        </div>
+    </form>
+    <button onclick="history.back()">Back</button>
+    <div id="customModal" class="modal">
+        <div class="modal-content">
+            <h3>Application Submitted</h3>
+            <p>The application will be handled in three weekdays. The result will be notified by email.</p>
+            <div class="modal-buttons">
+                <button class="btn-secondary" onclick="handleWithdraw()">Withdraw</button>
+                <button class="btn-success" onclick="closeModal()">OK</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let countdownTimer = null;
+
+    function showModal() {
+        document.getElementById('customModal').style.display = 'flex';
+    }
+
+    function closeModal() {
+        document.getElementById('customModal').style.display = 'none';
+    }
+
+    function startCountdown(seconds) {
+        const button = document.querySelector('button[onclick="sendVerificationCode()"]');
+        button.disabled = true;
+
+        const originalText = button.innerText;
+        let remaining = seconds;
+
+        button.innerText = `${remaining}s`;
+        countdownTimer = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) {
+                clearInterval(countdownTimer);
+                button.disabled = false;
+                button.innerText = originalText;
+            } else {
+                button.innerText = `${remaining}s`;
+            }
+        }, 1000);
+    }
+
+    async function sendVerificationCode() {
+        const email = document.getElementById('email').value.trim().toLowerCase();
+        const orgName = document.getElementById('orgName').value.trim();
+
+        if (!email || !orgName) {
+            alert('Please fill in the organization name and email address first');
+            return;
+        }
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/oconvener/register/send-verify-code', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({email, organizationName: orgName})
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw result;
+
+            alert(`The verification code has been sent to: ***${email.slice(-4)}`);
+            startCountdown(60);
+        } catch (error) {
+            handleRegistrationError(error.code || 'UNKNOWN_ERROR', error.message);
+        }
+    }
+
+    document.getElementById('registrationForm').onsubmit = function (e) {
+        e.preventDefault();
+        if (validateForm()) {
+            handleRegistration();
+        }
+    }
+
+    function validateForm() {
+        const email = document.getElementById('email').value.trim();
+        const orgName = document.getElementById('orgName').value.trim();
+        const code = document.getElementById('verificationCode').value.trim();
+        const file = document.getElementById('document').files[0];
+
+        if (!email || !orgName || !code || !file) {
+            alert('Please fill in all the fields and upload the file');
+            return false;
+        }
+
+        return true;
+    }
+
+    async function handleRegistration() {
+        const formData = new FormData();
+        formData.append('email', document.getElementById('email').value.trim().toLowerCase());
+        formData.append('organizationName', document.getElementById('orgName').value.trim());
+        formData.append('verificationCode', document.getElementById('verificationCode').value.trim());
+        formData.append('document', document.getElementById('document').files[0]);
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/oconvener/register', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+            if (!response.ok) throw result;
+
+            showModal();
+        } catch (error) {
+            handleRegistrationError(error.code || 'SYSTEM_ERROR', error.message);
+        }
+    }
+
+    async function handleWithdraw() {
+        try {
+            const email = document.getElementById('email').value;
+            if (!email) {
+                alert("The mailbox cannot be empty");
+                return;
+            }
+
+            const response = await fetch('/oconvener/register/withdraw-registration', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({email: email.trim().toLowerCase()})
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                alert("Withdraw successful:" + result.message);
+            } else {
+                alert("Withdraw failed:" + result.message);
+            }
+        } catch (error) {
+            console.error("Withdraw error:", error);
+            alert("System anomaly. Please try again later!");
+        }
+    }
+
+    function handleRegistrationError(code, message) {
+        const errorMap = {
+            'INVALID_REQUEST': 'Please fill in all the required fields',
+            'USER_EXISTS': 'This email address has been registered',
+            'INVALID_CODE': 'Verification code error',
+            'INVALID_FILE': 'Only PDF/DOC/DOCX formats are supported',
+            'SYSTEM_ERROR': 'The system is temporarily unavailable.'
+        };
+        alert(errorMap[code] || `operation failure: ${message}`);
+    }
+</script>
+</body>
+</html>

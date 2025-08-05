@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Login</h1>
+    <form>
+        <div class="form-group">
+            <select id="identity">
+                <option value="O">O-Convener</option>
+                <option value="E">E-Admin</option>
+                <option value="S">Senior E-Admin</option>
+                <option value="T">T-Admin</option>
+                <option value="D">Data User</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <div class="input-group">
+                <input type="email" id="email" placeholder="Please input the email" required>
+                <button type="button" class="btn-success"
+                        onclick="location.href='register'">
+                    Register
+                </button>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <div class="input-group">
+                <input type="text" id="code" placeholder="Please input the verify code" required>
+                <button type="button" class="btn-primary" id="getCodeBtn"
+                        onclick="getVerifyCode()">
+                    Get Verify Code
+                </button>
+            </div>
+        </div>
+
+        <button type="button" onclick="handleLogin(event)">
+            Login
+        </button>
+    </form>
+</div>
+
+<script>
+    async function getVerifyCode() {
+        const email = document.getElementById('email').value.trim().toLowerCase();
+        const identity = document.getElementById('identity').value.toUpperCase();
+
+        if (!email || !identity) {
+            alert('Please fill the email and identity');
+            return;
+        }
+
+        try {
+            const response = await fetch('http://127.0.0.1:5000/user/send-verify-code', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    email: email,
+                    identity: identity
+                })
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                switch (result.code) {
+                    case 'SUCCESS':
+                        alert(`Verify code has sent to ${result.data.masked_email}`);
+                        startCountdown(60); // 开始60秒倒计时
+                        break;
+                    case 'USER_NOT_FOUND':
+                        alert('Can not find this user with this identity');
+                        break;
+                    default:
+                        alert(`The operation was successful but returned an unknown status code：${result.code}`);
+                }
+            } else {
+                handleErrorResponse(result);
+            }
+        } catch (error) {
+            handleNetworkError(error);
+        }
+    }
+
+    function handleErrorResponse(result) {
+        const errorMessages = {
+            'INVALID_REQUEST': 'Incomplete request parameters',
+            'INVALID_IDENTITY': 'Invalid identity type',
+            'EMAIL_FAILURE': 'Failed to send email, please try again',
+            'SYSTEM_ERROR': 'The system is temporarily unavailable'
+        };
+
+        alert(errorMessages[result.code] || `Server error：${result.message}`);
+    }
+
+    function handleNetworkError(error) {
+        console.error('Network Error:', error);
+        if (error.name === 'TypeError') {
+            alert('Unable to connect to the server, please check the network');
+        } else {
+            alert('An unknown error occurred, please check the console');
+        }
+    }
+
+    function startCountdown(seconds) {
+        const button = document.getElementById('getCodeBtn');
+        let remaining = seconds;
+
+        button.disabled = true;
+        const timer = setInterval(() => {
+            button.textContent = `Resend after ${remaining}s`;
+            if (remaining-- <= 0) {
+                clearInterval(timer);
+                button.disabled = false;
+                button.textContent = 'Get the verify code';
+            }
+        }, 1000);
+    }
+
+    async function handleLogin(event) {
+        if (event) event.preventDefault();
+        const email = document.getElementById('email').value.trim().toLowerCase();
+        const code = document.getElementById('code').value.trim();
+        const identitySelect = document.getElementById('identity');
+        const identity = identitySelect.value.toUpperCase();
+
+        const response = await fetch('http://127.0.0.1:5000/user/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, code, identity})
+        });
+
+        let result = null;
+        try {
+            result = await response.json();
+        } catch (jsonError) {
+            console.error('JSON parse error:', jsonError);
+            alert('The server returned data in a non-standard format');
+            return;
+        }
+
+        console.log(result);
+
+        if (response.ok) {
+            switch (result.code) {
+                case 'LOGIN_SUCCESS':
+                    const userId = result.data.user_info.user_id;
+                    const user_identity = result.data.user_info.identity
+
+                    sessionStorage.setItem('userId', userId);
+                    console.log("Call logAction before");
+                    await logAction(userId, user_identity, 'Log in');
+                    console.log("Call logAction after");
+
+                    console.log(result.data.redirect);
+                    window.location.assign(result.data.redirect);
+                    break;
+                default:
+                    alert('The login status is abnormal, please contact the administrator');
+            }
+        } else {
+            handleLoginError(result);
+        }
+    }
+
+
+    function handleLoginError(result) {
+        const errorMessages = {
+            'INVALID_REQUEST': 'Please fill in all required fields',
+            'INVALID_CODE': `Verification code error (remaining times: ${result.attempts_left})`,
+            'CODE_EXPIRED': 'Verification code has expired, please get it again',
+            'MAX_ATTEMPTS': 'Too many attempts, please get the verification code again',
+            'SYSTEM_ERROR': 'System is temporarily unavailable'
+        };
+
+        alert(errorMessages[result.code] || 'Unknown login error');
+    }
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('Server returned error：', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success:', data);
+        } catch (error) {
+            console.error('Logging Failure:', error);
+        }
+    }
+</script>
+</body>
+</html>

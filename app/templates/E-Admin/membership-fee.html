@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Membership fee management</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Membership fee management</h1>
+
+    <button onclick="getMembershipFee()" id="manageFeeBtn">Check current membership fees</button>
+    <button onclick="history.back()">Back</button>
+    <div id="feeContent"></div>
+
+
+    <div id="feeTable" style="display: none;">
+        <table class="centered-table">
+            <thead>
+            <tr>
+                <th>Level</th>
+                <th>Fee</th>
+            </tr>
+            </thead>
+            <tbody id="feeTableBody"></tbody>
+        </table>
+    </div>
+
+    <button onclick="openEditFeeModal()" id="editFeeBtn" style="display:none;">Add dues rules</button>
+
+    <div id="feeModal" style="display:none;">
+        <h3>Edit the membership fee rules</h3>
+        <form id="feeForm">
+            <div>
+                <label for="level1">Access right level 1(Public data access):</label>
+                <input type="number" id="level1" placeholder="Please enter the membership fee for level 1">
+            </div>
+            <div>
+                <label for="level2">Access right level 2(Private data consumption):</label>
+                <input type="number" id="level2" placeholder="Please enter the membership fee for level 2">
+            </div>
+            <div>
+                <label for="level3">Access right level 3(Private data provision):</label>
+                <input type="number" id="level3" placeholder="Please enter the membership fee for level 3">
+            </div>
+            <button type="button" onclick="saveFee()">Save</button>
+            <button type="button" onclick="closeFeeModal()">Cancel</button>
+            <button onclick="history.back()">Back</button>
+        </form>
+    </div>
+
+    <div id="message" class="message"></div>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+
+    let currentMembershipFees = {
+        "Access right level 1(Public data access):": null,
+        "Access right level 2(Private data consumption):": null,
+        "Access right level 3(Private data provision):": null
+    };
+
+    async function getMembershipFee() {
+        try {
+            const response = await fetch(`/eadmin/get-membership-fee`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({userId})
+            });
+
+            const data = await response.json();
+            if (response.ok && data.success) {
+                if (!data.membershipFee || Object.keys(data.membershipFee).length === 0) {
+                    document.getElementById('feeContent').innerHTML = "<p>There are no membership fee rules yet.</p>";
+                    document.getElementById('editFeeBtn').style.display = 'block';
+                    document.getElementById('editFeeBtn').textContent = "Add dues rules";
+                    document.getElementById('feeTable').style.display = 'none';
+                } else {
+                    currentMembershipFees = data.membershipFee;
+                    document.getElementById('feeContent').innerHTML = "<p>The membership fee rules are as follows:</p>";
+                    displayFeeTable(currentMembershipFees);
+                    document.getElementById('editFeeBtn').style.display = 'block';
+                    document.getElementById('editFeeBtn').textContent = "Edit dues rules";
+                }
+            } else {
+                alert("Query failed: " + data.error);
+            }
+        } catch (error) {
+            console.error('Request failed: ', error);
+            alert('Query failed: ' + error.message);
+        }
+    }
+
+    function displayFeeTable(membershipFee) {
+        const feeTableBody = document.getElementById('feeTableBody');
+
+        if (!feeTableBody) {
+            console.error("Unable to get feeTableBody table element");
+            return;
+        }
+
+        feeTableBody.innerHTML = '';
+        for (const [level, fee] of Object.entries(membershipFee)) {
+            const row = feeTableBody.insertRow();
+            const levelCell = row.insertCell(0);
+            const feeCell = row.insertCell(1);
+
+            levelCell.textContent = level;
+            feeCell.textContent = fee || 'Not set';
+        }
+
+        document.getElementById('feeTable').style.display = 'block';
+    }
+
+    function openEditFeeModal() {
+        document.getElementById('feeModal').style.display = 'block';
+
+        document.getElementById('level1').value = currentMembershipFees["Access right level 1(Public data access):"] || '';
+        document.getElementById('level2').value = currentMembershipFees["Access right level 2(Private data consumption):"] || '';
+        document.getElementById('level3').value = currentMembershipFees["Access right level 3(Private data provision):"] || '';
+    }
+
+    function closeFeeModal() {
+        document.getElementById('feeModal').style.display = 'none';
+    }
+
+    async function saveFee() {
+        const level1 = parseFloat(document.getElementById('level1').value.trim());
+        const level2 = parseFloat(document.getElementById('level2').value.trim());
+        const level3 = parseFloat(document.getElementById('level3').value.trim());
+
+        if (isNaN(level1) || isNaN(level2) || isNaN(level3)) {
+            alert("Please enter a valid membership fee amount");
+            return;
+        }
+
+        currentMembershipFees = {
+            "Access right level 1(Public data access):": level1,
+            "Access right level 2(Private data consumption):": level2,
+            "Access right level 3(Private data provision):": level3
+        };
+
+        try {
+            const response = await fetch('/eadmin/set-membership-fee', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    userId,
+                    membershipFee: currentMembershipFees
+                })
+            });
+
+            const data = await response.json();
+            if (response.ok && data.success) {
+                document.getElementById('message').innerHTML = "The membership fee rules have been saved successfully！";
+                logAction(userId, 'EAdmin', 'Updated membership fee');
+                getMembershipFee();
+                closeFeeModal();
+            } else {
+                alert("Save failed: " + data.error);
+            }
+        } catch (error) {
+            console.error('Request failed: ', error);
+            alert('Save failed: ' + error.message);
+        }
+    }
+
+    window.onload = getMembershipFee;
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error: ', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success: ', data);
+        } catch (error) {
+            console.error('Logging failure: ', error);
+        }
+    }
+</script>
+</body>
+</html>

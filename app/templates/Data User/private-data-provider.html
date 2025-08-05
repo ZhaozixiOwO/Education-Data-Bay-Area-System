@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Private Data Provider</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Private Data Provider Page</h1>
+
+    <div class="content">
+        <h2>Private Data Provider Page</h2>
+        <p>Provide private data for the system and enjoy all services.</p>
+    </div>
+
+    <div class="nav">
+        <a href="student-check">Student Check</a><br>
+        <a href="student-info-check">Search Student Info</a><br>
+        <a href="course-view">Course</a><br>
+        <a href="thesis">Thesis</a><br>
+        <a href="policy-view">Browse Policy</a><br>
+        <a href="submit-question">Help</a><br>
+        <a href="provide-database-api">Configuration</a><br>
+        <a href="provide-course">Provide Course</a><br>
+        <button onclick="logout(event)">Logout</button>
+    </div>
+
+</div>
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success:', data);
+        } catch (error) {
+            console.error('Logging Failure:', error);
+        }
+    }
+
+    async function logout(event) {
+        if (event) event.preventDefault();
+        await logAction(userId, 'EAdmin', "Logout");  // 调用日志
+        const response = await fetch(`/user/logout?userId=${userId}`, {
+          method: "POST"
+        });
+        const result = await response.json();
+
+        if (response.ok && result.message) {
+
+          sessionStorage.clear();
+
+
+          window.location.href = "/frontend/login";
+        } else {
+          alert("Logout failed:" + (result.error || "Unknown error"));
+        }
+    }
+</script>
+</body>
+</html>

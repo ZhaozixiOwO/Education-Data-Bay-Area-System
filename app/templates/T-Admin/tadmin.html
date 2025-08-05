@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>T-Admin Page</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .vertical.admin-controls {
+            flex-direction: column;
+            gap: 25px;
+            margin-top: 40px;
+        }
+
+        .admin-btn {
+            padding: 18px;
+            font-size: 18px;
+            border-radius: 8px;
+            letter-spacing: 1px;
+            transition: transform 0.2s;
+        }
+
+        .admin-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>T-Admin Page</h1>
+        <div class="content">
+            <h2>T-Admin</h2>
+            <p>You can manage registrations, receive problems hear.</p>
+        </div>
+        <div class="nav">
+            <a href=question-answering>Answer Question</a>
+            <a href=set-admin>Set Admin</a>
+            <button onclick="logout(event)">Logout</button>
+        </div>
+
+    </div>
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error: ', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+
+    async function logout(event) {
+        if (event) event.preventDefault();
+        await logAction(userId, 'EAdmin', "Logout");
+        const response = await fetch(`/user/logout?userId=${userId}`, {
+          method: "POST"
+        });
+        const result = await response.json();
+
+        if (response.ok && result.message) {
+          sessionStorage.clear();
+
+        window.location.href = "/frontend/login";
+        } else {
+          alert("Logout failed: " + (result.error || "Unknown Error"));
+        }
+    }
+</script>
+</body>
+</html>

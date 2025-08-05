@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Course Management</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Course Management</h1>
+
+    <button onclick="fetchCourses()">Search my courses</button>
+    <button onclick="openCourseModal()">Add New Course</button>
+    <button onclick="history.back()">Back</button>
+
+    <div id="courseTable" style="margin-top: 20px;"></div>
+
+    <div id="courseModal"
+         style="display:none; position:fixed; top:20%; left:35%; width:30%; padding:20px; background:white; border:1px solid black;">
+        <h3 id="modalTitle">Add a course</h3>
+        <input type="hidden" id="courseId">
+        <div style="margin-bottom:10px;">
+            Course Title: <input type="text" id="title"><br><br>
+            Description: <textarea id="description" rows="3" style="width:100%;"></textarea><br><br>
+            Professor: <input type="text" id="instructor"><br><br>
+            Credit: <input type="number" id="credits" min="0"><br><br>
+        </div>
+        <button onclick="saveCourse()">Save</button>
+        <button onclick="closeModal()">Cancel</button>
+        <button onclick="history.back()">Back</button>
+    </div>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function fetchCourses() {
+        try {
+            const res = await fetch(`/datauser/list_courses?userId=${encodeURIComponent(userId)}`);
+            const data = await res.json();
+            const tableDiv = document.getElementById('courseTable');
+
+            if (res.ok && data.success) {
+                if (data.data.length === 0) {
+                    tableDiv.innerHTML = "<p>No courses available yet.</p>";
+                    return;
+                }
+
+                let tableHtml = `
+          <table border="1" cellspacing="0" cellpadding="8">
+            <thead>
+              <tr>
+                <th>Course ID</th>
+                <th>Title</th>
+                <th>Description</th>
+                <th>Professor</th>
+                <th>Credit</th>
+                <th>Operation</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+                data.data.forEach(course => {
+                    tableHtml += `
+            <tr>
+              <td>${course.courseId}</td>
+              <td>${course.title}</td>
+              <td>${course.description || ''}</td>
+              <td>${course.instructor || 'None'}</td>
+              <td>${course.credits || 0}</td>
+              <td>
+                <button onclick="openCourseModal(${course.courseId}, '${course.title}', '${course.description || ''}', '${course.instructor || ''}', ${course.credits || 0})">Edit</button>
+              </td>
+            </tr>
+          `;
+                });
+
+                tableHtml += `</tbody></table>`;
+                tableDiv.innerHTML = tableHtml;
+
+            } else {
+                tableDiv.innerHTML = `<p>Query failed: ${data.message || 'Server Error'}</p>`;
+            }
+        } catch (err) {
+            console.error(err);
+            document.getElementById('courseTable').innerHTML = "<p>The server connection failed.</p>";
+        }
+    }
+
+    function openCourseModal(id = '', title = '', description = '', instructor = '', credits = 0) {
+        document.getElementById('modalTitle').innerText = id ? 'Edit Course' : 'Add a course';
+        document.getElementById('courseId').value = id;
+        document.getElementById('title').value = title;
+        document.getElementById('description').value = description;
+        document.getElementById('instructor').value = instructor;
+        document.getElementById('credits').value = credits;
+        document.getElementById('courseModal').style.display = 'block';
+    }
+
+    function closeModal() {
+        document.getElementById('courseModal').style.display = 'none';
+    }
+
+    async function saveCourse() {
+        const courseId = document.getElementById('courseId').value;
+        const title = document.getElementById('title').value.trim();
+        const description = document.getElementById('description').value.trim();
+        const instructor = document.getElementById('instructor').value.trim();
+        const credits = parseInt(document.getElementById('credits').value.trim()) || 0;
+
+        if (!title) {
+            alert("Please fill in the course title!");
+            return;
+        }
+
+        const payload = {
+            title,
+            description,
+            instructor,
+            credits
+        };
+
+        const url = courseId
+            ? `/datauser/edit_course?courseId=${courseId}&userId=${encodeURIComponent(userId)}`
+            : `/datauser/add_course?userId=${encodeURIComponent(userId)}`;
+
+        try {
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            const result = await res.json();
+            if (res.ok && result.success) {
+                logAction(userId, 'Data User', 'Update course info');
+                alert('Saved successfully!');
+                closeModal();
+                fetchCourses();
+            } else {
+                alert(`Save failed: ${result.message || 'Unknown error'}`);
+            }
+        } catch (err) {
+            console.error(err);
+            alert('Request failed');
+        }
+    }
+
+    window.onload = fetchCourses;
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returned an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Logging success:', data);
+        } catch (error) {
+            console.error('Logging failure:', error);
+        }
+    }
+</script>
+</body>
+</html>

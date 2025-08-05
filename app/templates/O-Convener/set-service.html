@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Service Management</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Service Management</h1>
+
+    <button onclick="openAddServiceModal()">Add service</button>
+    <button onclick="submitUpdates()">Save Changes</button>
+    <button onclick="history.back()">Back</button>
+    <div id="serviceTable" style="margin-top: 20px;"></div>
+
+    <div id="addServiceModal"
+         style="display:none; position:fixed; top:25%; left:35%; width:30%; padding:20px; background:white; border:1px solid black;">
+        <h3>Add Service</h3>
+        <label>
+            Service Type
+            <select id="addServiceType">
+                <option value="">-- Please select --</option>
+                <option value="course">course</option>
+                <option value="thesis">thesis</option>
+                <option value="thesis_download">thesis_download</option>
+                <option value="student check">student check</option>
+                <option value="student info">student info</option>
+            </select>
+        </label>
+        <br><br>
+        <button onclick="addService()">Add</button>
+        <button onclick="closeAddServiceModal()">Cancel</button>
+    </div>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function fetchServices() {
+        try {
+            const res = await fetch(`/oconvener/get_workspace_service?userId=${userId}`);
+            const data = await res.json();
+            const tableDiv = document.getElementById('serviceTable');
+
+            if (Array.isArray(data)) {
+                if (data.length === 0) {
+                    tableDiv.innerHTML = "<p>No Service </p>";
+                    return;
+                }
+
+                let html = `
+          <table border="1" cellspacing="0" cellpadding="8">
+            <thead>
+              <tr>
+                <th>Service Type</th>
+                <th>Price</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+                data.forEach(service => {
+                    let statusText = "";
+                    let priceEditable = false;
+                    let statusEditable = false;
+
+                    if (service.status === 1) {
+                        statusText = "Not Configured";
+                    } else if (service.status === 2 || service.status === 0) {
+                        priceEditable = true;
+                        statusEditable = true;
+                    }
+
+                    html += `
+            <tr>
+              <td>${service.portContent}</td>
+              <td>
+                <input type="number"
+                       class="price-input"
+                       data-service-id="${service.serviceId}"
+                       data-port-content="${service.portContent}"
+                       value="${service.price}"
+                       ${priceEditable ? '' : 'disabled'}>
+              </td>
+              <td>
+                ${statusText}
+                ${statusEditable ? `
+                  <select class="status-select"
+                          data-service-id="${service.serviceId}"
+                          data-port-content="${service.portContent}">
+                    <option value="2" ${service.status === 2 ? 'selected' : ''}>Enable</option>
+                    <option value="0" ${service.status === 0 ? 'selected' : ''}>Disable</option>
+                  </select>
+                ` : ''}
+              </td>
+            </tr>
+          `;
+                });
+
+                html += `</tbody></table>`;
+                tableDiv.innerHTML = html;
+            } else {
+                tableDiv.innerHTML = "<p>Loading failed</p>";
+            }
+        } catch (err) {
+            console.error(err);
+            tableDiv.innerHTML = "<p>The service loading failed</p>";
+        }
+    }
+
+    async function submitUpdates() {
+        const priceInputs = document.querySelectorAll('.price-input');
+        const statusSelects = document.querySelectorAll('.status-select');
+
+        const updatesMap = {};
+
+        priceInputs.forEach(input => {
+            const id = input.dataset.serviceId;
+            const portContent = input.dataset.portContent;
+            const price = parseFloat(input.value);
+            updatesMap[id] = updatesMap[id] || {serviceId: parseInt(id), portContent};
+            updatesMap[id].price = price;
+        });
+
+        statusSelects.forEach(select => {
+            const id = select.dataset.serviceId;
+            const portContent = select.dataset.portContent;
+            const enabled = parseInt(select.value);
+            updatesMap[id] = updatesMap[id] || {serviceId: parseInt(id), portContent};
+            updatesMap[id].enabled = enabled;
+        });
+
+        const updatesArray = Object.values(updatesMap);
+
+        if (updatesArray.length === 0) {
+            alert("There is nothing that needs to be updated");
+            return;
+        }
+
+        try {
+            const res = await fetch('/oconvener/update_workspace_service', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({updates: updatesArray})
+            });
+            const result = await res.json();
+            logAction(userId, 'OConvener', 'Update service');
+            alert(result.message || "update completed");
+            fetchServices();
+        } catch (err) {
+            alert("update completed: " + err.message);
+        }
+    }
+
+    function openAddServiceModal() {
+        document.getElementById("addServiceModal").style.display = "block";
+    }
+
+    function closeAddServiceModal() {
+        document.getElementById("addServiceModal").style.display = "none";
+    }
+
+    async function addService() {
+        const selected = document.getElementById("addServiceType").value;
+        if (!selected) {
+            alert("Please select the service type");
+            return;
+        }
+
+        try {
+            const res = await fetch(`/oconvener/create_service?userId=${userId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    serviceType: selected
+                })
+            });
+
+            const result = await res.json();
+            if (res.ok && result.success !== false) {
+                logAction(userId, 'OConvener', 'Add service');
+                alert("The service has been added successfully!");
+                closeAddServiceModal();
+                fetchServices();
+            } else {
+                alert("Addition failed: " + (result.message || result.error));
+            }
+        } catch (err) {
+            alert("Request failed: " + err.message);
+        }
+    }
+
+    window.onload = fetchServices;
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error: ', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+</script>
+</body>
+</html>

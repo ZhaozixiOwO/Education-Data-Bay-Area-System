@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Set Admin</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .admin-setup-container {
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .role-selector {
+            margin: 1.5rem 0;
+        }
+
+        .form-select {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+
+        .input-group {
+            margin: 1rem 0;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.8rem;
+            border: 2px solid #bdc3c7;
+            border-radius: 6px;
+            font-size: 1em;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .btn {
+            padding: 0.8rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            flex: 1;
+        }
+
+        .confirm-btn {
+            background: #3498db;
+            color: white;
+        }
+
+        .cancel-btn {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .result-message {
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 6px;
+        }
+
+        .admin-section {
+            margin: 20px;
+            padding: 15px;
+            border: 1px solid #eee;
+        }
+
+        .member-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="admin-setup-container">
+    <h1>Set Admin</h1>
+    <div id="adminTable"></div>
+    <div id="resultMessage" class="result-message"></div>
+
+    <div id="memberModal"
+         style="display:none; position:fixed; top:20%; left:35%; width:30%; padding:20px; background:white; border:1px solid black;">
+        <h3 id="modalTitle">Add Admin</h3>
+        <input type="hidden" id="memberId">
+
+        <div style="margin-bottom:10px;">
+            <select id="roleSelect" class="form-select">
+                <option value="">Please select the admin type</option>
+                <option value="EAdmin">EAdmin</option>
+                <option value="SeniorEAdmin">SeniorEAdmin</option>
+            </select>
+            Name: <input type="text" id="userName"><br><br>
+            Eamil: <input type="email" id="userEmail"><br><br>
+            Status: 
+            <select id="status">
+                <option value="1">Enable</option>
+                <option value="0">Disable</option>
+            </select><br><br>
+        </div>
+
+        <button onclick="saveAdmin()">Save</button>
+        <button onclick="closeModal()">Cancel</button>
+    </div>
+
+    <div class="container">
+        <button onclick="openAddMemberModal()">Add New Admin</button>
+        <button onclick="history.back()">Back</button>
+    </div>
+</div>
+
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    function showMessage(msg, type) {
+        const div = document.getElementById('resultMessage');
+        div.textContent = msg;
+        div.className = `result-message ${type}`;
+
+        div.style.backgroundColor = type === 'error' ? '#f8d7da' : '#d4edda';
+        div.style.color = type === 'error' ? '#721c24' : '#155724';
+    }
+
+    function validateEmail(email) {
+        const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return re.test(email);
+    }
+
+    function clearForm() {
+        document.getElementById('roleSelect').value = '';
+        document.getElementById('userName').value = '';
+        document.getElementById('userEmail').value = '';
+    }
+
+
+    fetchAdmins()
+
+    async function fetchAdmins() {
+        try {
+            const response = await fetch('http://127.0.0.1:5000/tadmin/get-admin', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+
+            const data = await response.json();
+            const tableDiv = document.getElementById('adminTable');
+
+            if (response.ok) {
+                if (!data.admins || data.admins.length === 0) {
+                    tableDiv.innerHTML = "<p>There is no administrator for the time being.</p>";
+                    return;
+                }
+
+                let tableHtml = `
+        <table border="1" cellspacing="0" cellpadding="8">
+          <thead>
+            <tr>
+              <th>AdminId</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>AccessLevel</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+                data.admins.forEach(admin => {
+                    tableHtml += `
+          <tr>
+            <td>${admin.id}</td>
+            <td>${admin.userName}</td>
+            <td>${admin.email}</td>
+            <td>${admin.roleType}</td>
+            <td>
+              <button onclick="editAdmin('${admin.roleType}', ${admin.id}, '${admin.userName}', '${admin.email}')">Edit</button>
+            </td>
+          </tr>
+        `;
+                });
+
+                tableHtml += `
+          </tbody>
+        </table>
+      `;
+
+                tableDiv.innerHTML = tableHtml;
+            } else {
+                tableDiv.innerHTML = `<p>Query failed: ${data.error}</p>`;
+            }
+        } catch (error) {
+            console.error('Request failed:', error);
+            document.getElementById('adminTable').innerHTML = "<p>server connection failed</p>";
+        }
+    }
+
+    function openAddMemberModal() {
+        document.getElementById('modalTitle').textContent = 'Add Admin';
+        document.getElementById('memberId').value = '';
+        document.getElementById('roleSelect').value = '';
+        document.getElementById('userName').value = '';
+        document.getElementById('userEmail').value = '';
+        document.getElementById('status').value = '1';
+        document.getElementById('memberModal').style.display = 'block';
+    }
+
+    function editAdmin(roleType, id, name, email) {
+        document.getElementById('modalTitle').textContent = 'Edit Admin';
+        document.getElementById('memberId').value = id;
+        document.getElementById('userName').value = name;
+        document.getElementById('userEmail').value = email;
+        document.getElementById('roleSelect').value = roleType;
+        document.getElementById('status').value = "1";
+        document.getElementById('memberModal').style.display = 'block';
+    }
+
+    function closeModal() {
+        document.getElementById('memberModal').style.display = 'none';
+    }
+
+    async function saveAdmin() {
+        const memberId = document.getElementById('memberId').value;
+        const roleType = document.getElementById('roleSelect').value;
+        const userName = document.getElementById('userName').value;
+        const userEmail = document.getElementById('userEmail').value;
+        const status = document.getElementById('status').value;
+        const tadminUserId = sessionStorage.getItem("userId");
+
+        if (!roleType || !userName || !userEmail) {
+            alert("Please fill in all fields!");
+            return;
+        }
+
+        const payload = {
+            roleType,
+            userName,
+            userEmail,
+            status: parseInt(status),
+            userId: memberId ? parseInt(memberId) : undefined
+        };
+
+        let url = '';
+        let successMessage = '';
+
+        if (memberId) {
+
+            url = 'http://127.0.0.1:5000/tadmin/update-admin';
+            successMessage = 'The administrator has updated successfully!';
+        } else {
+            url = 'http://127.0.0.1:5000/tadmin/set-admin';
+            payload.tadminId = tadminUserId;
+            successMessage = 'The administrator has been added successfully!';
+        }
+
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                logAction(userId, 'TAdmin', 'Edit admin');
+                alert(successMessage);
+                closeModal();
+                fetchAdmins();
+            } else {
+                const details = result.details ? `\nDetails: ${result.details}` : '';
+                alert(`${result.error || 'Save failed'}${details}`);
+            }
+        } catch (error) {
+            console.error('Request error:', error);
+            alert('The network request failed. Please try again later.');
+        }
+    }
+     async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+</script>
+</body>
+</html>

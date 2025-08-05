@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Members</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="container">
+    <h1>Manage Members</h1>
+    <div id="feeContent"></div>
+    <button onclick="fetchMembers()">View All Member</button>
+    <button onclick="openAddMemberModal()">Add New Member</button>
+    <button onclick="payAll()">Pay All</button>
+    <button onclick="history.back()">Back</button>
+    <form id="importForm" enctype="multipart/form-data" style="margin-top: 10px;">
+        <input type="file" id="memberFile" name="file" accept=".xls,.xlsx">
+        <input type="hidden" id="orgId" name="organizationId" value="YOUR_ORG_ID">
+        <button type="button" onclick="uploadMembers()">Batch Import Of Members</button>
+    </form>
+    <div id="memberTable" style="margin-top: 20px;"></div>
+</div>
+
+<div id="memberModal"
+     style="display:none; position:fixed; top:20%; left:35%; width:30%; padding:20px; background:white; border:1px solid black;">
+    <h3 id="modalTitle">Add Member</h3>
+    <input type="hidden" id="memberId">
+
+    <div style="margin-bottom:10px;">
+        Name: <input type="text" id="userName"><br><br>
+        Email: <input type="email" id="email"><br><br>
+        Identity: <input type="number" id="accessLevel" min="0"><br><br>
+        Quota: <input type="number" id="quota" min="0"><br><br>
+        Status: 
+        <select id="status">
+            <option value="1">Enable </option>
+            <option value="0">Disable</option>
+        </select><br><br>
+    </div>
+
+    <button onclick="saveMember()">Save</button>
+    <button onclick="closeModal()">Cancel</button>
+</div>
+
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+    const estatus = 1;
+    let currentMembershipFees = {
+        "Access right level 1(Public data access):": null,
+        "Access right level 2(Private data consumption):": null,
+        "Access right level 3(Private data provision):": null
+    };
+
+    window.onload = function () {
+        getMembershipFee();
+    };
+
+
+    async function getMembershipFee() {
+        try {
+            const response = await fetch('/eadmin/get-membership-fee', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({estatus})
+            });
+
+            const data = await response.json();
+            if (response.ok && data.success) {
+                if (!data.membershipFee || Object.keys(data.membershipFee).length === 0) {
+                    document.getElementById('feeContent').innerHTML = "<p>There are no membership fee rules for the time being.</p>";
+                } else {
+                    currentMembershipFees = data.membershipFee;
+                    displayFeeTable(currentMembershipFees);
+                }
+            } else {
+                alert("Query failed: " + data.error);
+            }
+        } catch (error) {
+            console.error('Request failed:', error);
+            alert('Query failed: ' + error.message);
+        }
+    }
+
+    function displayFeeTable(membershipFee) {
+        const feeContent = document.getElementById('feeContent');
+        const feeTable = `
+          <h3>Membership Fee Rules</h3>
+          <table class="centered-table">
+              <thead>
+                  <tr>
+                      <th>Identity</th>
+                      <th>Membership Fees</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  ${Object.entries(membershipFee).map(([level, fee]) => `
+                      <tr>
+                          <td>${level}</td>
+                          <td>${fee || 'Not set'}</td>
+                      </tr>
+                  `).join('')}
+              </tbody>
+          </table>
+      `;
+        feeContent.innerHTML = feeTable;
+    }
+
+    async function fetchMembers() {
+        try {
+            const response = await fetch(`/oconvener/members?userId=${encodeURIComponent(userId)}`, {method: 'GET'});
+            const data = await response.json();
+            const tableDiv = document.getElementById('memberTable');
+
+            if (response.ok) {
+                if (data.length === 0) {
+                    tableDiv.innerHTML = "<p>There are no members for the moment</p>";
+                    return;
+                }
+
+                let tableHtml = `
+            <table class="centered-table">
+              <thead>
+                  <tr>
+                      <th>Member ID</th>
+                      <th>Name</th>
+                      <th>Email</th>
+                      <th>Identity</th>
+                      <th>Quota</th>
+                      <th>Status</th>
+                      <th>Operation</th>
+                  </tr>
+          </thead>
+          <tbody>
+          `;
+
+                data.forEach(member => {
+                    tableHtml += `
+              <tr>
+                  <td>${member.userId}</td>
+                  <td>${member.userName}</td>
+                  <td>${member.email}</td>
+                  <td>${member.identity}</td>
+                  <td>${member.quota}</td>
+                  <td>${member.status}</td>
+                  <td>
+                      <button onclick="openEditMemberModal(${member.userId}, '${member.userName}', '${member.email}', ${member.identity}, ${member.quota}, ${member.status})">Edit</button>
+                      <button onclick="paySingle(${member.userId})">Pay Fee</button>
+                  </td>
+              </tr>
+            `;
+                });
+
+                tableHtml += `
+              </tbody>
+            </table>
+          `;
+
+                tableDiv.innerHTML = tableHtml;
+            } else {
+                tableDiv.innerHTML = `<p>Query failed: ${data.error}</p>`;
+            }
+        } catch (error) {
+            console.error('Request failed:', error);
+            document.getElementById('memberTable').innerHTML = "<p>Server connection failed</p>";
+        }
+    }
+
+    function openAddMemberModal() {
+        document.getElementById('modalTitle').innerText = 'Add New Member';
+        document.getElementById('memberId').value = '';
+        document.getElementById('userName').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('accessLevel').value = 0;
+        document.getElementById('quota').value = 0;
+        document.getElementById('status').value = '1';
+        document.getElementById('memberModal').style.display = 'block';
+    }
+
+    function openEditMemberModal(userId, userName, email, accessLevel, quota, status) {
+        document.getElementById('modalTitle').innerText = 'Edit Member';
+        document.getElementById('memberId').value = userId;
+        document.getElementById('userName').value = userName;
+        document.getElementById('email').value = email;
+        document.getElementById('accessLevel').value = accessLevel;
+        document.getElementById('quota').value = quota;
+        document.getElementById('status').value = status;
+        document.getElementById('memberModal').style.display = 'block';
+    }
+
+    function closeModal() {
+        document.getElementById('memberModal').style.display = 'none';
+    }
+
+    async function saveMember() {
+        const datauserId = document.getElementById('memberId').value;
+        const userName = document.getElementById('userName').value;
+        const email = document.getElementById('email').value;
+        const accessLevel = document.getElementById('accessLevel').value;
+        const thesisDownloadQuota = document.getElementById('quota').value;
+        const status = document.getElementById('status').value;
+
+        const payload = {
+            datauserId,
+            userName,
+            email,
+            accessLevel: parseInt(accessLevel),
+            thesisDownloadQuota: parseInt(thesisDownloadQuota),
+            status: parseInt(status)
+        };
+
+        try {
+            let url = '';
+            let method = '';
+            if (datauserId) {
+                url = `/oconvener/members/edit`;
+                method = 'POST';
+            } else {
+                url = `/oconvener/members/add?userId=${encodeURIComponent(userId)}`;
+                method = 'POST';
+            }
+
+            const response = await fetch(url, {
+                method,
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+
+            if (response.ok) {
+                alert('Save Successfully!');
+                closeModal();
+                fetchMembers();
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.error || 'Save Failed';
+                const details = errorData.details ? `\nDetails: ${errorData.details}` : '';
+                alert(`${errorMessage}${details}`);
+            }
+        } catch (error) {
+            console.error('Save Error:', error);
+            alert('server connection failed!');
+        }
+    }
+
+    async function uploadMembers() {
+        const fileInput = document.getElementById('memberFile');
+        const orgId = document.getElementById('orgId').value;
+
+        if (!fileInput.files.length) {
+            alert('Please select the file first');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('organizationId', orgId);
+
+        try {
+            const response = await fetch(`/oconvener/members/import?userId=${encodeURIComponent(userId)}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                alert(`The import was successful. There are a total of ${result.count} bits of members`);
+                fetchMembers();
+                fileInput.value = '';
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.error || 'Import Failed';
+                const details = errorData.details ? `\nDetails: ${errorData.details}` : '';
+                alert(`${errorMessage}${details}`);
+            }
+        } catch (error) {
+            console.error('Upload Failed:', error);
+            alert('The upload failed. Please try again later');
+        }
+    }
+
+    async function payAll() {
+        try {
+            const response = await fetch(`/oconvener/members/pay_all?userId=${encodeURIComponent(userId)}`, {
+                method: 'POST'
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                alert(`One-click payment was successful and the ${result.updated} bit member was updated`);
+                fetchMembers();
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.error || 'One-click payment failed';
+                const details = errorData.details ? `\nDetails: ${errorData.details}` : '';
+                alert(`${errorMessage}${details}`);
+            }
+        } catch (err) {
+            alert('Request failed');
+            console.error(err);
+        }
+    }
+
+    async function paySingle(datauserId) {
+        try {
+            const response = await fetch(`/oconvener/members/pay?userId=${encodeURIComponent(userId)}&datauserId=${encodeURIComponent(datauserId)}`, {
+                method: 'POST',
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                alert('Payment successful!');
+                fetchMembers();
+            } else {
+                const errorData = await response.json().catch(() => ({}));
+                const errorMessage = errorData.error || 'Payment failed';
+                const details = errorData.details ? `\nDetails: ${errorData.details}` : '';
+                alert(`${errorMessage}${details}`);
+            }
+        } catch (err) {
+            alert('Request failed');
+            console.error(err);
+        }
+    }
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error: ', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+</script>
+</body>
+</html>

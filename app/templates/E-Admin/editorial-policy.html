@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Policy Management</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+    th { background-color: #f2f2f2; }
+    .btn { margin-right: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Policy Management</h1>
+
+    <h2>Add New Policy</h2>
+    <form id="addPolicyForm">
+      <input type="text" id="newPolicyTitle" placeholder="Policy Title" required>
+      <input type="file" id="newPolicyFile" accept=".pdf" required>
+
+      <button type="submit">Add Policy</button>
+    </form>
+    <button onclick="history.back()">Back</button>
+    <div id="responseMessage"></div>
+    <h2>Existing Policies</h2>
+    <table id="policyTable">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Title</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <input type="file" id="editFileInput" accept=".pdf" style="display: none;" />
+
+    <script>
+      const userId = sessionStorage.getItem("userId");
+      document.getElementById('addPolicyForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+
+        const formData = new FormData();
+        formData.append('title', document.getElementById('newPolicyTitle').value);
+        formData.append('file', document.getElementById('newPolicyFile').files[0]);
+
+        try {
+          const response = await fetch('/eadmin/add_policy', {
+            method: 'POST',
+            body: formData
+          });
+
+          const result = await response.json();
+          const responseMessage = document.getElementById('responseMessage');
+
+          if (response.ok) {
+            responseMessage.innerHTML = `<p style="color: green;">${result.message}</p>`;
+            logAction(userId, 'EAdmin', 'Add policy');
+          } else {
+            responseMessage.innerHTML = `<p style="color: red;">${result.error}</p>`;
+          }
+        } catch (error) {
+          console.error('Error:', error);
+          document.getElementById('responseMessage').innerHTML = `<p style="color: red;">Upload failed</p>`;
+        }
+      });
+      async function fetchPolicies() {
+        const response = await fetch('/eadmin/list_policies');
+        const data = await response.json();
+        const tableBody = document.querySelector('#policyTable tbody');
+        tableBody.innerHTML = '';
+        data.forEach(policy => {
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td>${policy.id}</td>
+            <td>${policy.title}</td>
+            <td>
+              <button onclick="downloadPolicy(${policy.id}, '${policy.title}')">Download</button>
+              <input type="file" id="file_${policy.id}" style="display:inline-block" />
+              <button onclick="updatePolicy(${policy.id})">Update</button>
+              <button onclick="deletePolicy(${policy.id})">Delete</button>
+            </td>
+          `;
+          tableBody.appendChild(row);
+        });
+      }
+
+      async function downloadPolicy(policyId, title) {
+        const formData = new FormData();
+        formData.append('policyId', policyId);
+
+        const response = await fetch('/eadmin/view_policy', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (!response.ok) {
+          alert('Download failed');
+          return;
+        }
+
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      async function deletePolicy(policyId) {
+        const formData = new FormData();
+        formData.append('policyId', policyId);
+
+        const response = await fetch('/eadmin/delete_policy', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+        alert(result.message || result.error);
+        logAction(userId, 'EAdmin', 'Delete policy');
+        fetchPolicies();
+      }
+
+      async function updatePolicy(policyId) {
+        const fileInput = document.getElementById(`file_${policyId}`);
+        const file = fileInput.files[0];
+
+        if (!file) {
+          alert('Please select file');
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('policyId', policyId);
+        formData.append('file', file);
+
+        const response = await fetch('/eadmin/update_policy', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+        alert(result.message || result.error);
+        logAction(userId, 'EAdmin', 'Update policy');
+        fetchPolicies();
+      }
+
+      window.onload = fetchPolicies;
+
+      async function logAction(userId, identity, action) {
+            try {
+                const response = await fetch(
+                    `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                    {method: 'POST'}
+                );
+
+                if (!response.ok) {
+                    const text = await response.text();
+                    console.error('The server returned an error: ', text);
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Logging success:', data);
+            } catch (error) {
+                console.error('Logging Failure:', error);
+            }
+      }
+    </script>
+  </div>
+</body>
+</html>

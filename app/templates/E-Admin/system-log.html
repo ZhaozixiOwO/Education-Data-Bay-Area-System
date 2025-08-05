@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>System log view</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <div class="container">
+    <h1>System log view</h1>
+
+    <div class="form-group">
+      <label for="actionInput">Activity Type</label>
+      <input type="text" id="actionInput" class="ghost-input" placeholder="such as login">
+    </div>
+
+    <div class="form-group">
+      <label for="emailInput">User mailbox</label>
+      <input type="text" id="emailInput" class="ghost-input" placeholder="XXX@mail.com">
+    </div>
+
+    <div class="form-group">
+      <label for="orgInput">Organization Name</label>
+      <input type="text" id="orgInput" class="ghost-input" placeholder="such as XXX school">
+    </div>
+    <div class="form-group">
+      <label for="roleSelect">User ID</label>
+      <select id="roleSelect" class="ghost-input">
+        <option value="">All</option>
+        <option value="Data User">Data User</option>
+        <option value="EAdmin">EAdmin</option>
+        <option value="TAdmin">TAdmin</option>
+        <option value="SeniorEAdmin">SeniorEAdmin</option>
+        <option value="OConvener">OConvener</option>
+      </select>
+    </div>
+    <div class="button-group">
+      <button class="btn-primary" onclick="fetchLogs()">Query log</button>
+      <button class="btn-secondary" onclick="resetFilters()">Reset</button>
+      <button onclick="history.back()">Back</button>
+    </div>
+
+    <div id="logTable" class="content" style="margin-top: 30px;"></div>
+  </div>
+
+  <script>
+    function fetchLogs() {
+      const action = document.getElementById("actionInput").value.trim();
+      const userEmail = document.getElementById("emailInput").value.trim();
+      const organizationName = document.getElementById("orgInput").value.trim();
+      const role = document.getElementById("roleSelect").value.trim();
+
+      const filters = {};
+      if (action) filters.action = action;
+      if (userEmail) filters.userEmail = userEmail;
+      if (organizationName) filters.organizationName = organizationName;
+      if (role) filters.role = role;
+      fetch("/log/get-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(filters)
+      })
+      .then(res => res.json())
+      .then(data => {
+        const tableDiv = document.getElementById("logTable");
+        if (data.logs && data.logs.length > 0) {
+          let html = `<table class="centered-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Status</th>
+                <th>User Email</th>
+                <th>User Identity</th>
+                <th>Activity Content</th>
+              </tr>
+            </thead>
+            <tbody>`;
+
+          data.logs.forEach(log => {
+            html += `
+              <tr>
+                <td>${log.timestamp || ''}</td>
+                <td>${log.status || ''}</td>
+                <td>${log.userEmail || ''}</td>
+                <td>${log.identity || ''}</td>
+                <td>${log.action || ''}</td>
+              </tr>`;
+          });
+
+          html += `</tbody></table>`;
+          tableDiv.innerHTML = html;
+        } else {
+          tableDiv.innerHTML = `<p class="empty-state">No log records matched the criteria.</p>`;
+        }
+      })
+      .catch(err => {
+        document.getElementById("logTable").innerHTML = `<p class="error-state">Failed to obtain logs：${err.message}</p>`;
+      });
+    }
+
+    function resetFilters() {
+      document.getElementById("actionInput").value = "";
+      document.getElementById("emailInput").value = "";
+      document.getElementById("orgInput").value = "";
+      fetchLogs();
+    }
+
+    window.onload = fetchLogs;
+  </script>
+</body>
+</html>

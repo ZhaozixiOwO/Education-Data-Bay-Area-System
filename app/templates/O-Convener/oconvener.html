@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>O-Convener</title>
+    <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+<div class="container">
+    <h1>O-Convener Page</h1>
+
+    <div class="content">
+        <h2>O-Convener Work Page</h2>
+        <p>Manage organizational services, members and accounts, etc.</p>
+    </div>
+
+    <div class="nav">
+        <a href="bank-account-input">Input Bank Account</a>
+        <a href="set-service">Set Service</a>
+        <a href="edit-member">Edit Member</a>
+        <a href="organization-log">View Organization Log</a>
+        <button onclick="logout(event)">Logout</button>
+    </div>
+
+</div>
+<script>
+    const userId = sessionStorage.getItem("userId");
+    console.log("User ID is ", userId);
+
+    async function logAction(userId, identity, action) {
+        try {
+            const response = await fetch(
+                `/log/log-info?userId=${encodeURIComponent(userId)}&identity=${encodeURIComponent(identity)}&action=${encodeURIComponent(action)}`,
+                {method: 'POST'}
+            );
+
+            if (!response.ok) {
+                const text = await response.text();
+                console.error('The server returns an error:', text);
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('Log recording successful:', data);
+        } catch (error) {
+            console.error('Log recording failed:', error);
+        }
+    }
+
+    async function logout(event) {
+        if (event) event.preventDefault();
+        await logAction(userId, 'EAdmin', "Logout");
+        const response = await fetch(`/user/logout?userId=${userId}`, {
+          method: "POST"
+        });
+        const result = await response.json();
+
+        if (response.ok && result.message) {
+          sessionStorage.clear();
+
+          window.location.href = "/frontend/login";
+        } else {
+          alert("Logout failed: " + (result.error || "Unknown Error"));
+        }
+    }
+</script>
+</body>
+</html>
