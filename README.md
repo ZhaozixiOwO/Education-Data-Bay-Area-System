@@ -113,6 +113,22 @@ To be determined.
 
 ---
 
+
+## ⚙️ Installation
+
+You can install and run the project in two ways:
+
+1. **Clone the repository**  
+   ```bash
+   git clone https://github.com/ZhaozixiOwO/Education-Data-Bay-Area-System.git
+   cd Education-Data-Bay-Area-System-main
+   pip install -r requirements.txt
+2. **Load the environment**
+   ```bash
+   python teamwork.py
+
+---
+
 ## 🤝 Contributors
 
 This project is developed as part of university coursework.
